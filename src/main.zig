@@ -238,7 +238,7 @@ pub const Instruction = union(InstructionTag) {
                 .Args => |n| std.debug.print("Args {d}\n", .{n}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
                 .Call => |numArgs|  std.debug.print("Call {d}\n", .{numArgs}),
-                .TailCall => |numArgs|  std.debug.print("Call {d}\n", .{numArgs}),
+                .TailCall => |numArgs|  std.debug.print("TailCall {d}\n", .{numArgs}),
                 .Pop => std.debug.print("Pop\n", .{}),
                 .Return => std.debug.print("Return\n", .{}),
         }
@@ -533,9 +533,16 @@ pub const VM = struct {
                     try self.bldr.newIntNumber(@intCast(self.ip + 1)); // push return value to the stack
                     self.ip = @as(i64, @intCast(f.code)) - 1;
                 },
-                .TailCall => |numArgs| {
-                    _ = &numArgs;
+                .TailCall => |numArgs| { // FIXME: now i need to rotate params
+                    // std.debug.print("num args? {d}\n", .{numArgs});
+                    // self.printStack();
+                    // @panic("stop");
                     const f = try (try self.stack.pop()).tryCast(.procedure);
+                    // self.printStack();
+                    try self.stack.shift(numArgs + 1);
+                    // self.printStack();
+                    // _ = &f;
+                    // @panic("stop");
                     self.env = f.env;
                     self.ip = @as(i64, @intCast(f.code)) - 1;
                 },
@@ -630,6 +637,11 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
             try stdout.flush();
             continue :repl;
         };
+
+    for (vm.code.items, 0..) |*instr, i| {
+        std.debug.print("{d}:\t ", .{i});
+        instr.print();
+    }
         vm.env = _nil;
         vm.ip = start;
         vm.run() catch |e| {

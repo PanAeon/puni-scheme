@@ -90,6 +90,7 @@ pub const AstNode = struct {
 
 
 };
+
 pub const Parser = struct {
     lexer: lex.Lexer = undefined,
     // allocator: std.mem.Allocator,
@@ -248,6 +249,36 @@ pub const Parser = struct {
         var node = try self.arena.create(AstNode.List);
         node.* = .{ .xs = buffer.items };
         return &node.base;
+    }
+};
+
+pub const Builder = struct {
+    arena: std.mem.Allocator,
+    pub fn init(arena: std.mem.Allocator) Builder {
+        return .{ .arena = arena };
+    }
+    pub fn emptyList(self: *const Builder, n: usize) !*AstNode {
+       const list = try self.arena.create(AstNode.List);
+        
+       list.* = .{
+            .xs = try self.arena.alloc(*AstNode, n),
+       };
+        return &list.base;
+    }
+    pub fn newList(self: *const Builder, xs: []const *AstNode) !*AstNode {
+           const list = try self.arena.create(AstNode.List);
+            
+           list.* = .{
+                .xs = try self.arena.dupe(*AstNode, xs),
+           };
+            return &list.base;
+    }
+    pub fn newAtom(self: *const Builder, name: []const u8) !*AstNode {
+            const atom = try self.arena.create(AstNode.Atom);
+            atom.* = .{
+                .name = name,
+            };
+        return &atom.base;
     }
 };
 

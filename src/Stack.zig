@@ -71,6 +71,22 @@ pub fn Stack(comptime T: type) type {
             }
             return self.items[self.size - 1 - n];
         }
+        pub fn shift(self: *Self, n:usize) !void {
+            if (n < 2) {
+                return;
+            }
+            if (self.size < n) {
+                return error.StackUnderflow;
+            }
+            const firstIdx = self.size - n;
+            const first = self.items[firstIdx];
+            for (firstIdx..self.size-1) |i| {
+                self.items[i] = self.items[i+1];
+            }
+            self.items[self.size - 1] = first;
+
+            // return self.items[self.size - 1 - n];
+        }
         pub fn headRef(self: *Self) !*T {
             if (self.size == 0) {
                 return error.StackUnderflow;

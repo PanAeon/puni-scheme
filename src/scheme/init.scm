@@ -66,16 +66,16 @@
 ;; (define plus +) // TODO: sort this out..
 
 ;; (define foo 3)
-(define (g x) (begin (+ 1 6) (+ 1 6) (+ 1 x)))
-(g 3)
+;; (define (g x) (begin (+ 1 6) (+ 1 6) (+ 1 x)))
+;; (g 3)
 
 
-         ;; (define (myadd n r)
-         ;;   (if (zero? n)
-         ;;      r
-         ;;     (myadd (- n 1) (+ r 1))
-         ;;   )
-         ;; )
+         (define (myadd n r)
+           (if (zero? n)
+              r
+             (myadd (- n 1) (+ r 1))
+           )
+         )
 ;; "foo"
 ;;
 ;; (define (first x) (car x))

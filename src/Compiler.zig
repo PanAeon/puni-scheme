@@ -1,5 +1,6 @@
 const std = @import("std");
 const AstNode = @import("Parser.zig").AstNode;
+const AstBuilder = @import("Parser.zig").Builder;
 const VM = @import("main.zig").VM;
 const Instruction = @import("main.zig").Instruction;
 const Primitives = @import("Primitives.zig");
@@ -62,6 +63,7 @@ pub const LexicalCtx = struct {
 arena: std.mem.Allocator,
 allocator: std.mem.Allocator,
 vm: *VM,
+astBuilder: AstBuilder,
 codePoint: usize = 0,
 primitives: std.StringHashMap(*const Primitives.Prim),
 macros: std.StringHashMap(*const Primitives.Macro),
@@ -69,6 +71,7 @@ macros: std.StringHashMap(*const Primitives.Macro),
 pub fn init(arena: std.mem.Allocator, allocator: std.mem.Allocator, vm: *VM) Compiler {
     return .{ .arena = arena, .vm = vm, .primitives = std.StringHashMap(*const Primitives.Prim).init(allocator),
               .macros = std.StringHashMap(*const Primitives.Macro).init(allocator),
+        .astBuilder = .{.arena = arena },
      .allocator = allocator };
 }
 
@@ -98,7 +101,7 @@ pub fn compile(self: *Compiler, xs: []*AstNode) anyerror!i64 {
     const codeRestore = self.vm.code.items.len;
     const dataRestore = self.vm.data.items.len;
     for (xs) |x| {
-        self.genExpr(x, &buff, &lexicalCtx) catch |e| {
+        self.genExpr(x, &buff, &lexicalCtx, false) catch |e| {
             self.vm.code.shrinkRetainingCapacity(codeRestore);
             self.vm.data.shrinkRetainingCapacity(dataRestore);
             return e;
@@ -109,7 +112,7 @@ pub fn compile(self: *Compiler, xs: []*AstNode) anyerror!i64 {
     try self.vm.code.append(self.allocator, .Halt);
     return @intCast(start);
 }
-pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
     switch(ast.id) {
         .list => {
             const xs = ast.cast(.list).xs;
@@ -125,13 +128,13 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     try self.genSet(xs[1], xs[2], buffer, lexicalCtx);
                     return;
                 } else if (std.mem.eql(u8, "begin", name)) {
-                    try self.genBegin(xs[1..], buffer, lexicalCtx);
+                    try self.genBegin(xs[1..], buffer, lexicalCtx, isTailCall);
                     return;
                 } else if (std.mem.eql(u8, "if", name)) { // TODO: if could be (if #t body)
                     if (xs.len != 4) {
                         return error.WrongSyntax;
                     }
-                    try self.genIf(xs[1], xs[2], xs[3], buffer, lexicalCtx);
+                    try self.genIf(xs[1], xs[2], xs[3], buffer, lexicalCtx, isTailCall);
                     return;
                 } else if (std.mem.eql(u8, "quote", name)) {
                     if (xs.len != 2) {
@@ -149,12 +152,12 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     try self.genPrim(prim, ast.cast(.list).xs[1..], buffer, lexicalCtx);
                     return;
                 } else if (self.macros.get(name)) |macro| {
-                    const transformed = try macro.exec(self.arena, xs[1..]);
-                    try self.genExpr(transformed, buffer, lexicalCtx);
+                    const transformed = try macro.exec(self.astBuilder, xs[1..]);
+                    try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     return;
                 }
             }
-            try self.genAp(ast.cast(.list).xs, buffer, lexicalCtx);
+            try self.genAp(ast.cast(.list).xs, buffer, lexicalCtx, isTailCall);
         },
         .intNumber => {
             const n = ast.cast(.intNumber).value;
@@ -249,10 +252,10 @@ pub fn genLambda(self: *Compiler, params: *AstNode, bodies: []*AstNode, buffer: 
     }
     try lambdaBuff.append(self.arena, .{ .Args = numParams } );
     for (0..bodies.len - 1) |i| {
-        try self.genExpr(bodies[i], &lambdaBuff, lexicalCtx);
+        try self.genExpr(bodies[i], &lambdaBuff, lexicalCtx, false);
         try lambdaBuff.append(self.arena, .Pop );
     }
-    try self.genExpr(bodies[bodies.len - 1], &lambdaBuff, lexicalCtx);
+    try self.genExpr(bodies[bodies.len - 1], &lambdaBuff, lexicalCtx, true);
     try lambdaBuff.append(self.arena, .Return );
 
 
@@ -268,15 +271,15 @@ pub fn genLambda(self: *Compiler, params: *AstNode, bodies: []*AstNode, buffer: 
     // return const lambda I suppose..
 }
 
-pub fn genIf(self: *Compiler, cond: *AstNode, branch0: *AstNode, branch1: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
-    try self.genExpr(cond, buffer, lexicalCtx);
+pub fn genIf(self: *Compiler, cond: *AstNode, branch0: *AstNode, branch1: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
+    try self.genExpr(cond, buffer, lexicalCtx, false);
     try buffer.append(self.arena, .{ .FJump = 0 });
     const fJumpIdx = buffer.items.len-1;
-    try self.genExpr(branch0, buffer, lexicalCtx);
+    try self.genExpr(branch0, buffer, lexicalCtx, isTailCall);
     try buffer.append(self.arena, .{ .Jump = 0 });
     const endJumpIdx = buffer.items.len-1;
     const fIdx = buffer.items.len;
-    try self.genExpr(branch1, buffer, lexicalCtx);
+    try self.genExpr(branch1, buffer, lexicalCtx, isTailCall);
     const endIdx = buffer.items.len;
     // now we can set jumps as we know the length..
     _ = &fJumpIdx;
@@ -286,7 +289,7 @@ pub fn genIf(self: *Compiler, cond: *AstNode, branch0: *AstNode, branch1: *AstNo
 }
 pub fn genPrim(self: *Compiler, prim: *const Primitives.Prim, params: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
     for (params) |p| {
-        try self.genExpr(p, buffer, lexicalCtx);
+        try self.genExpr(p, buffer, lexicalCtx, false);
     }
     if (prim.varargs) {
         const n: i48 = @intCast(params.len);
@@ -298,18 +301,22 @@ pub fn genPrim(self: *Compiler, prim: *const Primitives.Prim, params: []*AstNode
     }
     try buffer.append(self.arena, .{.Primitive = prim });
 }
-pub fn genAp(self: *Compiler, xs: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+pub fn genAp(self: *Compiler, xs: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
     const f = xs[0];
 
     const params = xs[1..];
 
     for (params) |p| {
-        try self.genExpr(p, buffer, lexicalCtx);
+        try self.genExpr(p, buffer, lexicalCtx, false);
     }
 
-    try self.genExpr(f, buffer, lexicalCtx);
+    try self.genExpr(f, buffer, lexicalCtx, false);
 
-    try buffer.append(self.arena, .{ .Call = @intCast(params.len) });
+    if (isTailCall) {
+        try buffer.append(self.arena, .{ .TailCall = @intCast(params.len) });
+    } else {
+        try buffer.append(self.arena, .{ .Call = @intCast(params.len) });
+    }
 
 
     // if (f.id == .atom) {
@@ -329,7 +336,7 @@ pub fn genSet(self: *Compiler, nameNode: *AstNode, expr: *AstNode, buffer: *std.
         return error.WrongSyntax;
     }
     const name = nameNode.cast(.atom).name;
-    try self.genExpr(expr, buffer, lexicalCtx);
+    try self.genExpr(expr, buffer, lexicalCtx, false);
 
     if (lexicalCtx.findArg(name)) |pos| {
         try buffer.append(self.arena, .{ .LSet = pos } );
@@ -344,17 +351,17 @@ pub fn genSet(self: *Compiler, nameNode: *AstNode, expr: *AstNode, buffer: *std.
 
 
 }
-pub fn genBegin(self: *Compiler, bodies: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+pub fn genBegin(self: *Compiler, bodies: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
     if (bodies.len == 0) {
         try buffer.append(self.arena, .{ .Const = _void });
         return;
     }
     for (0..bodies.len - 1) |i| {
-        try self.genExpr(bodies[i], buffer, lexicalCtx);
+        try self.genExpr(bodies[i], buffer, lexicalCtx, false);
         try buffer.append(self.arena, .Pop );
     }
-    try self.genExpr(bodies[bodies.len - 1], buffer, lexicalCtx);
-    try buffer.append(self.arena, .Return );
+    try self.genExpr(bodies[bodies.len - 1], buffer, lexicalCtx, isTailCall);
+    // try buffer.append(self.arena, .Return );
 }
 
 pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
