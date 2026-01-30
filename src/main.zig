@@ -189,8 +189,8 @@ const InstructionTag = enum {
     Jump,
     Return,
     Args,
-    Call,
-    TailCall,
+    JCall,
+    Save,
     Fn,
     Primitive,
     Halt
@@ -207,8 +207,8 @@ pub const Instruction = union(InstructionTag) {
     Jump: i64,
     Return,
     Args: usize,
-    Call: u32, // num of arguments
-    TailCall: u32, // num of arguments
+    JCall: u32, // num of arguments
+    Save: i64, // return address
     Fn: Function, // create closure from arg and current env, push result on the stack
     Primitive: *const Prim,
     Halt,
@@ -237,8 +237,8 @@ pub const Instruction = union(InstructionTag) {
                 .GSet => |p|  std.debug.print("GSet {any}\n", .{p}),
                 .Args => |n| std.debug.print("Args {d}\n", .{n}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
-                .Call => |numArgs|  std.debug.print("Call {d}\n", .{numArgs}),
-                .TailCall => |numArgs|  std.debug.print("TailCall {d}\n", .{numArgs}),
+                .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
+                .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => std.debug.print("Pop\n", .{}),
                 .Return => std.debug.print("Return\n", .{}),
         }
@@ -515,31 +515,49 @@ pub const VM = struct {
                 .Args => |n| {
                     const v = self.env.head().cast(.vector);
 
-                    const ret = try self.stack.pop();
+                    // const ret = try self.stack.pop();
                     for (0..n) |i| {
                         v.xs[n - i - 1] = try self.stack.pop();
                     }
-                    try self.stack.push(ret);
+                    // try self.stack.push(ret);
                     // try self.bldr.newEnv(n);
                 },
                 .Fn   => |x| {
                     try self.createProcedure(x);
                     // try self.bldr.newProc(x.@"0");
                 },
-                .Call => |numArgs| {
-                    _ = &numArgs;
-                    const f = try (try self.stack.pop()).tryCast(.procedure);
-                    self.env = f.env;
-                    try self.bldr.newIntNumber(@intCast(self.ip + 1)); // push return value to the stack
-                    self.ip = @as(i64, @intCast(f.code)) - 1;
+                // .Call => |numArgs| {
+                //     _ = &numArgs;
+                //     const f = try (try self.stack.pop()).tryCast(.procedure);
+                //     self.env = f.env;
+                //     try self.bldr.newIntNumber(@intCast(self.ip + 1)); // push return value to the stack
+                //     self.ip = @as(i64, @intCast(f.code)) - 1;
+                // },
+                .Save => |offset| {
+                    try self.bldr.newIntNumber(@intCast(self.ip + offset)); // push return value to the stack
                 },
-                .TailCall => |numArgs| { // FIXME: now i need to rotate params
+                .JCall => |numArgs| { // FIXME: now i need to rotate params
+                    _ = &numArgs;
                     // std.debug.print("num args? {d}\n", .{numArgs});
                     // self.printStack();
                     // @panic("stop");
                     const f = try (try self.stack.pop()).tryCast(.procedure);
+                    if (f.varargs) {
+                        if (numArgs < f.numArgs) {
+                            return error.ArityMismatch;
+                        }
+                        const numLast = numArgs - f.numArgs + 1;
+                        try self.bldr.newList();
+                        for (0..numLast) |_| {
+                            try self.bldr.appendToListRev();
+                        }
+                    } else {
+                        if (f.numArgs != numArgs) {
+                            return error.ArityMismatch;
+                        }
+                    }
                     // self.printStack();
-                    try self.stack.shift(numArgs + 1);
+                    // try self.stack.shift(numArgs + 1);
                     // self.printStack();
                     // _ = &f;
                     // @panic("stop");
@@ -558,7 +576,7 @@ pub const VM = struct {
 
     pub fn createProcedure(self: *VM, f: Instruction.Function) anyerror!void {
         try self.bldr.newEnv(f.numArgs, false);
-        try self.bldr.newProc(@intCast(f.code), f.varargs);
+        try self.bldr.newProc(@intCast(f.code), f.varargs, f.numArgs);
     }
 
     pub fn printStack(self: *VM) void {

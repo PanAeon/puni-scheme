@@ -367,7 +367,9 @@ pub const Node = struct {
         code: u32,
         // optimized: ?NodePtr = null,
         env: NodePtr,
+        numArgs: u32,
         varargs: bool,
+        
         // isMacro: bool = false,
         // expandMacro: bool = false // hacky, but what to do?
     };
@@ -422,13 +424,13 @@ pub const NodeBuilder = struct {
     }
 
 
-    pub fn newProc(self: *NodeBuilder, offset: u32, varargs: bool) !void {
+    pub fn newProc(self: *NodeBuilder, offset: u32, varargs: bool, numArgs: u32) !void {
         if (self.vm.numObjects >= self.vm.maxObjects) {
             self.vm.gc();
         }
         self.vm.stats.numAllocs +%= 1;
         const l = try self.allocator.create(Node.Procedure);
-        l.* = .{ .code = offset,  .env =  try self.vm.stack.pop(), .varargs = varargs };
+        l.* = .{ .code = offset,  .env =  try self.vm.stack.pop(), .varargs = varargs, .numArgs = numArgs };
         l.base.next = self.vm.lastNode;
         const ptr = NodePtr.init(&l.base, .{ .id = .procedure });
         self.vm.lastNode = ptr;

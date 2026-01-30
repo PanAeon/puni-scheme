@@ -302,6 +302,9 @@ pub fn genPrim(self: *Compiler, prim: *const Primitives.Prim, params: []*AstNode
     try buffer.append(self.arena, .{.Primitive = prim });
 }
 pub fn genAp(self: *Compiler, xs: []*AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
+    if (!isTailCall) {
+       try buffer.append(self.arena, .{ .Save = @intCast(xs.len+2) });
+    }
     const f = xs[0];
 
     const params = xs[1..];
@@ -312,11 +315,7 @@ pub fn genAp(self: *Compiler, xs: []*AstNode, buffer: *std.ArrayList(Instruction
 
     try self.genExpr(f, buffer, lexicalCtx, false);
 
-    if (isTailCall) {
-        try buffer.append(self.arena, .{ .TailCall = @intCast(params.len) });
-    } else {
-        try buffer.append(self.arena, .{ .Call = @intCast(params.len) });
-    }
+    try buffer.append(self.arena, .{ .JCall = @intCast(params.len) });
 
 
     // if (f.id == .atom) {
