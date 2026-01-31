@@ -96,18 +96,16 @@ pub fn getPrims(self: *Compiler) void {
 }
 
 // push code => vm.code and constants => vm.constants
-pub fn compile(self: *Compiler, xs: []*AstNode) anyerror!i64 {
+pub fn compile(self: *Compiler, x: *AstNode) anyerror!i64 {
     var buff = try std.ArrayList(Instruction).initCapacity(self.arena, 256);
     var lexicalCtx: LexicalCtx = .{};
     const codeRestore = self.vm.code.items.len;
     const dataRestore = self.vm.data.items.len;
-    for (xs) |x| {
         self.genExpr(x, &buff, &lexicalCtx, false) catch |e| {
             self.vm.code.shrinkRetainingCapacity(codeRestore);
             self.vm.data.shrinkRetainingCapacity(dataRestore);
             return e;
         };
-    }
     const start = self.vm.code.items.len;
     try self.vm.code.appendSlice(self.allocator, buff.items);
     try self.vm.code.append(self.allocator, .Halt);
@@ -211,7 +209,7 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
         .vector => {
             const xs = ast.cast(.vector).xs;
             for (xs) |x| {
-                try self.genQuoteInner(x);
+                try self.genQuoteInner(x, null);
             }
             try self.vm.bldr.newVector(xs.len, true);
             const node = try self.vm.stack.pop();
@@ -241,7 +239,7 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
         },
         .quasiquote => {
             const x = ast.cast(.quasiquote).value;
-            try self.genQuasiQuote(x, buffer);
+            try self.genQuasiQuote(x, buffer, lexicalCtx);
         },
         .unquote => {
             return error.WrongSyntax;
@@ -459,10 +457,25 @@ pub fn nodeToAst(self: *Compiler, x: NodePtr) anyerror!*AstNode {
     }
 }
 
-pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
+pub fn genQuoteInner(self: *Compiler, x: *AstNode, lexicalCtx: ?*LexicalCtx) anyerror!void {
     const bldr = &self.vm.bldr;
     switch (x.id) {
-        .atom => try bldr.newAtom(x.cast(.atom).name),
+        .atom => {
+            const name = x.cast(.atom).name;
+            if (lexicalCtx) |ctx| {
+                if (ctx.findArg(name)) | pos | {
+                    try bldr.newList();
+                    try bldr.newIntNumber(pos.@"1");
+                    try bldr.appendToList();
+                    try bldr.newIntNumber(pos.@"0");
+                    try bldr.appendToList();
+                    try bldr.newAtom("__arg");
+                    try bldr.appendToList();
+                }
+            } else {
+               try bldr.newAtom(name); 
+            }
+        },
         .intNumber => try bldr.newIntNumber(x.cast(.intNumber).value),
         .floatNumber => try bldr.newIntNumber(x.cast(.intNumber).value),
         .string => try  bldr.newString(x.cast(.string).s),
@@ -471,30 +484,30 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
             const xs = x.cast(.list).xs;
             try bldr.newList();
             for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[xs.len - 1 - i]);
+                try self.genQuoteInner(xs[xs.len - 1 - i], lexicalCtx);
                 try bldr.appendToList();
             }
         },
         .improperList => {
             const l = x.cast(.improperList);
-            try self.genQuoteInner(l.last);
+            try self.genQuoteInner(l.last, lexicalCtx);
             const xs = l.xs;
             for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[xs.len - 1 - i]);
+                try self.genQuoteInner(xs[xs.len - 1 - i], lexicalCtx);
                 try bldr.appendToList();
             }
         },
         .vector => {
             const xs = x.cast(.vector).xs;
             for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[i]);
+                try self.genQuoteInner(xs[i], lexicalCtx);
             }
             try bldr.newVector(xs.len, true);
         },
         .quote => { 
             try bldr.newList();
             const expr = x.cast(.quote).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, lexicalCtx);
             try bldr.appendToList();
             try bldr.newAtom("quote");
             try bldr.appendToList();
@@ -502,7 +515,7 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
         .quasiquote => { 
             try bldr.newList();
             const expr = x.cast(.quasiquote).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, lexicalCtx);
             try bldr.appendToList();
             try  bldr.newAtom("quasiquote");
             try bldr.appendToList();
@@ -510,7 +523,7 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
         .unquote => { 
             try bldr.newList();
             const expr = x.cast(.unquote).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, lexicalCtx);
             try bldr.appendToList();
             try  bldr.newAtom("unquote");
             try bldr.appendToList();
@@ -518,7 +531,7 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
         .unquoteSplicing => {
             try bldr.newList();
             const expr = x.cast(.unquoteSplicing).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, lexicalCtx);
             try bldr.appendToList();
             try  bldr.newAtom("unquote-splicing");
             try bldr.appendToList();
@@ -527,7 +540,7 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
 }
 
 pub fn genQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction)) anyerror!void {
-    try self.genQuoteInner(x);
+    try self.genQuoteInner(x, null);
     const c = try self.vm.stack.pop();
      
     try self.vm.data.append(self.allocator, c);
@@ -535,12 +548,12 @@ pub fn genQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction
 }
 
 
-pub fn genQuasiQuoteList(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyerror!void {
+pub fn genQuasiQuoteList(self: *Compiler, xs: []*AstNode, last: ?*AstNode, lexicalCtx: *LexicalCtx) anyerror!void {
     const bldr = &self.vm.bldr;
     try bldr.newList();
     if (xs.len == 0) {
         if (last) |l|{
-           const splice = try self.genQuasiQuoteInner(l);
+           const splice = try self.genQuasiQuoteInner(l, lexicalCtx);
            if (splice) {
                 return error.InvalidContext;
            }
@@ -552,9 +565,9 @@ pub fn genQuasiQuoteList(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyer
             try bldr.appendToList();
         }
     } else {
-         try self.genQuasiQuoteList(xs[1..], last);
+         try self.genQuasiQuoteList(xs[1..], last, lexicalCtx);
          try bldr.appendToList();
-         const splice = try self.genQuasiQuoteInner(xs[0]);
+         const splice = try self.genQuasiQuoteInner(xs[0], lexicalCtx);
          try bldr.appendToList();
          if (splice) {
             try bldr.newAtom("append");
@@ -565,7 +578,7 @@ pub fn genQuasiQuoteList(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyer
     }
 }
 // cons list and append
-pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!bool {
+pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode, lexicalCtx: *LexicalCtx) anyerror!bool {
     const bldr = &self.vm.bldr;
     switch (x.id) {
         .atom => { 
@@ -581,19 +594,19 @@ pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!bool {
         .bool => try bldr.newBool(x.cast(.bool).value),
         .list => {
             const xs = x.cast(.list).xs;
-            try self.genQuasiQuoteList(xs, null);
+            try self.genQuasiQuoteList(xs, null, lexicalCtx);
         },
         .improperList => {
             const xs = x.cast(.improperList).xs;
-            try self.genQuasiQuoteList(xs, x.cast(.improperList).last);
+            try self.genQuasiQuoteList(xs, x.cast(.improperList).last, lexicalCtx);
         },
         .unquote => {
             const expr = x.cast(.unquote).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, null);
         },
         .unquoteSplicing => {
             const expr = x.cast(.unquoteSplicing).value;
-            try self.genQuoteInner(expr);
+            try self.genQuoteInner(expr, null);
             return true;
         },
         else => {@panic("not implemented");},
@@ -603,8 +616,8 @@ pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!bool {
 
 
 
-pub fn genQuasiQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction)) anyerror!void {
-    _ = try self.genQuasiQuoteInner(x);
+pub fn genQuasiQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+    _ = try self.genQuasiQuoteInner(x, lexicalCtx); // wait .. I need to actually compile it?
     const c = try self.vm.stack.pop();
      
     try self.vm.data.append(self.allocator, c);
@@ -618,7 +631,7 @@ pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: []*AstNode) any
     try self.vm.bldr.newList();
     try self.vm.bldr.newIntNumber(@intCast(codeRestore + 1));
     for (params) |p| {
-        try self.genQuoteInner(p);
+        try self.genQuoteInner(p, null);
     }
     try self.vm.stack.push(usermacro);
 

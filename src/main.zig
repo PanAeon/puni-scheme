@@ -527,7 +527,8 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
             prompt = "==> ";
             continue :repl;
         };
-        const start = compiler.compile(nodes) catch |e| {
+        for (nodes) |node| {
+        const start = compiler.compile(node) catch |e| {
             lineBuffer.clearRetainingCapacity();
             try stdout.print("compile error: {any}\n", .{e});
             try stdout.flush();
@@ -554,6 +555,7 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
             if (item.getId() != .void) {
                 item.debugprint("");
             }
+        }
         }
         lineBuffer.clearRetainingCapacity();
         // vm.printReturnStack();
@@ -599,26 +601,27 @@ pub fn main() !void {
 
         compiler.getPrims();
 
-
-        const start = try compiler.compile(nodes);
+        for (nodes) |node| {
+           const start = try compiler.compile(node);
+           vm.ip = start;
+           try vm.run();
+            for (0..vm.stack.size) |i| {
+                const item = vm.stack.items[i];
+                if (item.getId() != .void) {
+                    item.debugprint("");
+                }
+            }
+          vm.stack.clear();
+        }
 
         // for (vm.code.items, 0..) |*instr, i| {
         //     std.debug.print("{d}:\t ", .{i});
         //     instr.print();
         // }
-        vm.ip = start;
 
-        try vm.run();
 
-        for (0..vm.stack.size) |i| {
-            const item = vm.stack.items[i];
-            if (item.getId() != .void) {
-                item.debugprint("");
-            }
-        }
-        vm.stack.clear();
     }
-    defer std.debug.print("...\n", .{});
+    // defer std.debug.print("...\n", .{});
 
     // try vm.pushExprsToCallstack();
 
