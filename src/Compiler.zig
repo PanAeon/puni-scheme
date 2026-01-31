@@ -170,10 +170,14 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     return;
                 } else if (self.macros.get(name)) |macro| {
                     const transformed = try macro.exec(self.astBuilder, xs[1..]);
+                    std.debug.print("builtin macro: {s}\n", .{name});
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
+                    transformed.debugprint("... ");
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
+                    std.debug.print("user macro: {s}\n", .{name});
                     const transformed = try self.runUserMacro(usermacro,  xs[1..]);
+                    transformed.debugprint("... ");
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     return;
                 }
@@ -370,7 +374,7 @@ pub fn genAp(self: *Compiler, xs: []*AstNode, buffer: *std.ArrayList(Instruction
     // otherwise it is 
 }
 
-// can't we do (set! (expr ..) (expr)) ???
+// can't we do (set! (expr ..) (expr)) ??? no
 pub fn genSet(self: *Compiler, nameNode: *AstNode, expr: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
     if (nameNode.id != .atom) {
         return error.WrongSyntax;

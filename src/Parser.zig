@@ -89,6 +89,100 @@ pub const AstNode = struct {
     pub const Bool = struct { base: AstNode = .{.id = .bool }, value: bool };
 
 
+
+
+    pub fn debugprint(self: *AstNode, msg: []const u8) void {
+        std.debug.print("{s} ", .{msg});
+        std.debug.print("'", .{});
+        self.print();
+        std.debug.print("\n", .{});
+    }
+    pub fn printList(n: *const AstNode) void {
+        const p = n.cast(.pair);
+        std.debug.print("(", .{});
+        print(&p.fst);
+        var x = p.snd;
+        while (x.getId() == .pair) {
+            var p1 = x.cast(.pair);
+            print(&p1.fst);
+            x = p1.snd;
+        }
+        // std.debug.print(" . ", .{});
+        if (x.getId() != .nil) {
+            std.debug.print(". ", .{});
+            print(&x);
+        }
+        std.debug.print(")", .{});
+    }
+    pub fn print(n: *AstNode) void {
+        switch (n.id) {
+            .atom => {
+                const b = n.cast(.atom);
+                std.debug.print("{s} ", .{b.name});
+            },
+            .improperList => {
+                const l = n.cast(.improperList);
+                std.debug.print("(", .{});
+
+                for (l.xs) |x| {
+                   x.print(); 
+                }
+                std.debug.print(". ", .{});
+                l.last.print();
+                std.debug.print(") ", .{});
+            },
+            .list => {
+                const l = n.cast(.list);
+                std.debug.print("(", .{});
+
+                for (l.xs) |x| {
+                   x.print(); 
+                }
+                std.debug.print(") ", .{});
+            },
+            .intNumber => {
+                std.debug.print("{d} ", .{n.cast(.intNumber).value});
+            },
+            .floatNumber => {
+                std.debug.print("{d} ", .{n.cast(.floatNumber).value});
+            },
+            .vector => {
+                const v = n.cast(.vector);
+                std.debug.print("#(", .{});
+                for (v.xs) |x| {
+                 x.print();
+                }
+                std.debug.print(")", .{});
+            },
+            .string => {
+                const b = n.cast(.string);
+                std.debug.print("\"{s}\" ", .{b.s});
+            },
+            .bool => {
+                if (n.cast(.bool).value) {
+                    std.debug.print("#t ", .{});
+                } else {
+                    std.debug.print("#f ", .{});
+                }
+            },
+            .quote => {
+                std.debug.print("'", .{});
+                n.cast(.quote).value.print();
+            },
+            .quasiquote => {
+                std.debug.print("'", .{});
+                n.cast(.quasiquote).value.print();
+            },
+            .unquote => {
+                std.debug.print(",", .{});
+            },
+            .unquoteSplicing => {
+                std.debug.print(",@", .{});
+            },
+        }
+    }
+
+
 };
 
 pub const Parser = struct {

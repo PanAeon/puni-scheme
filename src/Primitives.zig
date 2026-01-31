@@ -311,13 +311,14 @@ pub fn __add(vm: *VM) anyerror!void {
         try vm.bldr.newIntNumber(res);
     }
 }
-pub fn @"string-append"(vm: *VM) anyerror!void {
+pub fn stringAppend(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
     if (n == 0) {
         try vm.bldr.newString("");
     } else if (n > 512) {
         return error.ArgsTooLong;
     } else {
+        try vm.stack.reverseInPlace(@intCast(n));
         for (0..@intCast(n)) |i| {
             if (!((try vm.stack.nth(i)).getId() == .string)) {
                 return error.IllegalArgument;
@@ -738,6 +739,7 @@ pub const cdr: Prim = .{.name = "cdr", .exec = _cdr,  .numArgs = 1};
 
 pub const @"number->string": Prim = .{.name = "number->string", .exec = numberToString,  .numArgs = 1};
 pub const @"string->atom": Prim = .{.name = "string->atom", .exec = stringToAtom,  .numArgs = 1};
+pub const @"string-append": Prim =    .{.name = "string-append",    .exec = stringAppend,     .varargs = true};
 //         // .{ "string-append", @"string-append" },
 
 pub const @"eq?": Prim =    .{.name = "eq?",    .exec = isEq,     .numArgs = 2};
@@ -748,6 +750,7 @@ pub const @"equal?": Prim = .{.name = "equal?", .exec = isEqual,  .numArgs = 2};
 pub const cons: Prim =    .{.name = "cons",    .exec = _cons,     .numArgs = 2};
 pub const @"set-car!": Prim =    .{.name = "set-car!",    .exec = setCar,     .numArgs = 2};
 pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .numArgs = 2};
+
 
 
 pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};
