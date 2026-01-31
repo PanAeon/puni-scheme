@@ -702,16 +702,16 @@ pub fn _inspect(vm: *VM) anyerror!void {
 
     try vm.stack.push(_void);
 }
-pub fn retrieveArg(vm: *VM) anyerror!void {
-    const pos = (try vm.stack.pop()).getIntValue();
-    const level = (try vm.stack.pop()).getIntValue();
-    const value = getEnv(vm.env, level, pos);
-    if (value) |v| {
-        try vm.stack.push(v);
-    } else {
-        return error.UnknownName;
-    }
-}
+// pub fn retrieveArg(vm: *VM) anyerror!void {
+//     const pos = (try vm.stack.pop()).getIntValue();
+//     const level = (try vm.stack.pop()).getIntValue();
+//     const value = getEnv(vm.env, level, pos);
+//     if (value) |v| {
+//         try vm.stack.push(v);
+//     } else {
+//         return error.UnknownName;
+//     }
+// }
 
 pub const newline: Prim = .{.name = "newline", .exec = _newline,  .numArgs = 0};
 
@@ -760,7 +760,7 @@ pub const cons: Prim =    .{.name = "cons",    .exec = _cons,     .numArgs = 2};
 pub const @"set-car!": Prim =    .{.name = "set-car!",    .exec = setCar,     .numArgs = 2};
 pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .numArgs = 2};
 
-pub const __arg: Prim =    .{.name = "__arg",    .exec = retrieveArg,     .numArgs = 2};
+// pub const __arg: Prim =    .{.name = "__arg",    .exec = retrieveArg,     .numArgs = 2};
 
 
 pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};

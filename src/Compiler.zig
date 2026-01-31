@@ -168,12 +168,12 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     return;
                 } else if (self.macros.get(name)) |macro| {
                     const transformed = try macro.exec(self.astBuilder, xs[1..]);
-                    std.debug.print("builtin macro: {s}\n", .{name});
+                    // std.debug.print("builtin macro: {s}\n", .{name});
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     transformed.debugprint("... ");
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
-                    std.debug.print("user macro: {s}\n", .{name});
+                    // std.debug.print("user macro: {s}\n", .{name});
                     const transformed = try self.runUserMacro(usermacro,  xs[1..]);
                     transformed.debugprint("... ");
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
@@ -239,7 +239,7 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
         },
         .quasiquote => {
             const x = ast.cast(.quasiquote).value;
-            try self.genQuasiQuote(x, buffer, lexicalCtx);
+            try self.genExpr(try self.genQuasiQuote(x), buffer, lexicalCtx, false);
         },
         .unquote => {
             return error.WrongSyntax;
@@ -616,12 +616,69 @@ pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode, lexicalCtx: *LexicalCtx)
 
 
 
-pub fn genQuasiQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
-    _ = try self.genQuasiQuoteInner(x, lexicalCtx); // wait .. I need to actually compile it?
-    const c = try self.vm.stack.pop();
+pub fn genQuasiQuoteListTr(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyerror!*AstNode {
+    const bldr = &self.astBuilder;
+    if (xs.len == 0) {
+        if (last) |l|{
+           const res = try self.genQuasiQuoteInnerTr(l);
+           if (res.@"1") {
+                return error.InvalidContext;
+           } else {
+                return res.@"0";
+           }
+
+        } else {
+            return bldr.newList(&.{bldr.newAtom("quote"), bldr.emptyList(0)});
+        }
+    } else {
+         const rest = try self.genQuasiQuoteListTr(xs[1..], last);
+         const r = try self.genQuasiQuoteInnerTr(xs[0]);
+         if (r.@"1") {
+            return bldr.newList(&.{bldr.newAtom("append"), r.@"0", rest});
+         } else {
+            return bldr.newList(&.{bldr.newAtom("cons"), r.@"0", rest});
+         }
+    }
+}
+// cons list and append
+pub fn genQuasiQuoteInnerTr(self: *Compiler, x: *AstNode) anyerror!struct{*AstNode,bool} {
+    const bldr = &self.astBuilder;
+    switch (x.id) {
+        .atom => { 
+            return .{bldr.newList(&.{bldr.newAtom("quote"), x}), false};
+        },
+        .intNumber,
+        .floatNumber,
+        .string,
+        .bool => return .{x, false},
+        .list => {
+            const xs = x.cast(.list).xs;
+            return .{try self.genQuasiQuoteListTr(xs, null), false};
+        },
+        .improperList => {
+            const xs = x.cast(.improperList).xs;
+            return .{try self.genQuasiQuoteListTr(xs, x.cast(.improperList).last), false};
+        },
+        .unquote => {
+            const expr = x.cast(.unquote).value;
+            return .{expr, false};
+        },
+        .unquoteSplicing => {
+            const expr = x.cast(.unquoteSplicing).value;
+            return .{expr, true};
+        },
+        else => {@panic("not implemented");},
+    }
+}
+
+
+pub fn genQuasiQuote(self: *Compiler, x: *AstNode) anyerror!*AstNode {
+    const r = try self.genQuasiQuoteInnerTr(x); // wait .. I need to actually compile it?
+    return r.@"0";
+    // const c = try self.vm.stack.pop();
      
-    try self.vm.data.append(self.allocator, c);
-    try buffer.append(self.arena, .{.Const = c });
+    // try self.vm.data.append(self.allocator, c);
+    // try buffer.append(self.arena, .{.Const = c });
 }
 
 

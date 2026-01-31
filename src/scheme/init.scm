@@ -245,18 +245,18 @@
 ;; ;;     (let ([id val-expr] ...) body ...+)
 ;; ;; (let proc-id ([id init-expr] ...) body ...+)
 ;;
-;; (define-macro (let bindings . body)
-;;   (if (symbol? bindings)
-;;       `(begin (define ,bindings (lambda ,(map first (head body)) ,@(tail body)))
-;;         (,bindings ,@(map second (head body))))
-;;       `((lambda ,(map first bindings) ,@body)
-;;         ,@(map second bindings)) ))
+(define-macro (let bindings . body)
+  (if (symbol? bindings)
+      `(begin (define ,bindings (lambda ,(map first (head body)) ,@(tail body)))
+        (,bindings ,@(map second (head body))))
+      `((lambda ,(map first bindings) ,@body)
+        ,@(map second bindings)) ))
 ;;
 
-(define (tq a b) `(1 2 ,a ,b))
-(define-macro (let bindings . body)
-    (append   (list (flatten (list (list  'lambda) (list (map first bindings)) body (list ))))
-            (map second bindings) ))
+;; (define (tq a b) `(1 2 ,a ,b))
+;; (define-macro (let bindings . body)
+;;     (append   (list (flatten (list (list  'lambda) (list (map first bindings)) body (list ))))
+;;             (map second bindings) ))
 
 ;;
 ;;
