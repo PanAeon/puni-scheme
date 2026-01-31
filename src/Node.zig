@@ -48,7 +48,7 @@ pub const NodePtr = struct {
                 .intNumber => @panic("error"),
                 .floatNumber => @panic("error"),
                 .string => Node.String,
-                .bool => Node.String,
+                .bool => @panic("error"),
                 // .primitive => Node.Primitive,
                 .procedure => Node.Procedure,
                 .vector => Node.Vector,
@@ -454,6 +454,10 @@ pub const NodeBuilder = struct {
         try self.vm.stack.push(ptr);
     }
     pub fn newAtom(self: *NodeBuilder, xs: []const u8) !void {
+        if (self.vm.symbolMap.get(xs)) |ptr| {
+            try self.vm.stack.push(ptr);
+            return;
+        }
         if (self.vm.numObjects >= self.vm.maxObjects) {
             self.vm.gc();
         }
@@ -466,6 +470,8 @@ pub const NodeBuilder = struct {
         const ptr = NodePtr.init(&l.base, .{ .id = .atom });
         self.vm.lastNode = ptr;
         self.vm.numObjects += 1;
+        try self.vm.symbolMap.put(l.name, ptr);
+        try self.vm.data.append(self.allocator, ptr);
         try self.vm.stack.push(ptr);
     }
     pub fn newPair(self: *NodeBuilder) !void {

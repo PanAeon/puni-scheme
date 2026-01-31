@@ -135,93 +135,7 @@ pub fn sub(vm: *VM) anyerror!void {
 // }
 
 
-// pub fn @"define-macro"(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     try assertArityGreaterOrEq(2, n);
-//     const _p = try vm.stack.pop();
-//     vm.protect(_p);
-//     const p = try _p.tryCast(.pair);
-//     const name = p.fst;
-//     const args = p.snd;
-//
-//     try vm.bldr.newList();
-//     for (0..@intCast(n - 1)) |_| {
-//         try vm.appendToListRev();
-//     }
-//     try vm.reverseList();
-//     try vm.bldr.newAtom("begin");
-//     try vm.appendToList();
-//
-//     const body = try vm.stack.pop();
-//     vm.protect(body);
-//
-//     try vm.stack.push(name);
-//     try vm.stack.push(vm.env);
-//     try vm.stack.push(body);
-//     try vm.stack.push(args);
-//     try vm.bldr.newProc(true);
-//     const proc = try vm.stack.head();
-//     try vm.appendToLastEnv();
-//     proc.cast(.procedure).env = vm.env;
-//     try vm.stack.push(_void);
-// }
 
-// pub fn __define_macro(vm: *VM) anyerror!void {
-//     const numArgs = (try vm.stack.pop()).getIntValue();
-//     try assertArityGreaterOrEq(2, numArgs);
-//     const arg0 = try vm.stack.pop();
-//     vm.protect(arg0);
-//
-//     if (arg0.getId() == .atom) {
-//        try assertArityEq(2, numArgs);
-//        const expr = try vm.stack.pop();
-//        vm.protect(expr);
-//
-//         try vm.bldr.newList();
-//         try vm.bldr.newAtom("put!");
-//         try vm.appendToList();
-//         try vm.stack.push(arg0);
-//         try vm.appendToList();
-//         try vm.stack.push(expr);
-//         try vm.appendToList();
-//         try vm.reverseList();
-//     } else if (arg0.getId() == .pair) {
-//
-//         const name = arg0.head();
-//         const params = arg0.tail();
-//         for (1..@intCast(numArgs)) |_| {
-//             vm.protect(try vm.stack.pop()); // pop body expr
-//         }
-//         try vm.protectStack.reverseInPlace(@intCast(numArgs - 1));
-//         try vm.bldr.newList();
-//         try vm.bldr.newAtom("put!");
-//         try vm.appendToList();
-//         try vm.stack.push(name);
-//         try vm.appendToList();
-//
-//             try vm.bldr.newList(); // our lambda
-//             try vm.bldr.newAtom("lambda");
-//             try vm.appendToList();
-//             try vm.stack.push(params);
-//             try vm.appendToList();
-//
-//             for (1..@intCast(numArgs)) |_| {
-//                 try vm.stack.push(try vm.protectStack.pop());
-//                 try vm.appendToList();
-//             }
-//             try vm.reverseList();
-//
-//         try vm.appendToList();
-//         try vm.reverseList();
-//         // (try vm.stack.head()).debugprint("**result**");
-//
-//     } else {
-//         std.debug.print("can't define not atom, got: {}\n", .{arg0.getId()});
-//         return error.IllegalArgument;
-//     }
-//
-//
-// }
 
 
 
@@ -265,7 +179,7 @@ pub fn sub(vm: *VM) anyerror!void {
 // procedure:  (string->number string radix)
 //
 
-pub fn @"="(vm: *VM) anyerror!void {
+pub fn numEq(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
     try assertArityGreaterOrEq(1, n);
     var res = true;
@@ -302,29 +216,20 @@ pub fn isBoolean(vm: *VM) anyerror!void {
 }
 
 pub fn _not(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
     const n = try vm.stack.pop();
     try vm.bldr.newBool(((n.getId() == .bool and n.getBoolValue() == false)));
 }
 
 // list ops -----------------------------------------------------------------------------
 pub fn _cons(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, numArgs);
-    // const a = try vm.stack.pop();
-    // const b = try vm.stack.pop();
+    try vm.stack.reverseInPlace(2);
     try vm.bldr.newPair();
 }
 pub fn _car(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
     const a = try vm.stack.pop();
     try vm.stack.push((try a.tryCast(.pair)).fst);
 }
 pub fn _cdr(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
     const a = try vm.stack.pop();
     try vm.stack.push((try a.tryCast(.pair)).snd);
 }
@@ -340,70 +245,41 @@ pub fn isList(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .nil or n.getId() == .pair);
 }
-pub fn @"set-car!"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, numArgs);
+pub fn setCar(vm: *VM) anyerror!void {
+    const b = try vm.stack.pop();
     const a = try vm.stack.pop();
     const xs = try a.tryCast(.pair);
-    const b = try vm.stack.pop();
     xs.fst = b;
     try vm.stack.push(_void);
 }
-pub fn @"set-cdr!"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, numArgs);
+pub fn setCdr(vm: *VM) anyerror!void {
+    const b = try vm.stack.pop();
     const a = try vm.stack.pop();
     const xs = try a.tryCast(.pair);
-    const b = try vm.stack.pop();
     xs.snd = b;
     try vm.stack.push(_void);
 }
 
-pub fn @"number?"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
+pub fn isNumber(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .intNumber or n.getId() == .floatNumber);
 }
-pub fn @"symbol?"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
+pub fn isSymbol(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .atom);
 }
-// pub fn @"macro?"(vm: *VM) anyerror!void {
-//     const numArgs = (try vm.stack.pop()).getIntValue();
-//     try assertArityEq(1, numArgs);
-//     const x = try vm.stack.pop();
-//     if (x.getId() == .atom) {
-//         if (getEnv(vm.env, x.cast(.atom).name)) | value | {
-//             if ((value.getId() == .procedure and value.cast(.procedure).isMacro) or 
-//                 (value.getId() == .primitive and value.cast(.primitive).isMacro)) {
-//                 try vm.bldr.newBool(true);
-//                 return;
-//             }
-//         }
-//     }
-//     try vm.bldr.newBool(false);
-// }
 
-pub fn @"integer?"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
+pub fn isInteger(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .intNumber);
 }
 
-pub fn @"string?"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
+pub fn isString(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .string);
 }
 
-pub fn @"real?"(vm: *VM) anyerror!void {
-    const numArgs = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, numArgs);
+pub fn isReal(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .floatNumber);
 }
@@ -448,9 +324,7 @@ pub fn @"string-append"(vm: *VM) anyerror!void {
         try vm.bldr.newString(res);
     }
 }
-pub fn @"string->atom"(vm: *VM) anyerror!void { // TODO: radix..
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, n);
+pub fn stringToAtom(vm: *VM) anyerror!void { // TODO: radix..
     const string = try vm.stack.pop();
     vm.protect(string);
     if (string.getId() == .string) {
@@ -459,7 +333,7 @@ pub fn @"string->atom"(vm: *VM) anyerror!void { // TODO: radix..
         return error.IllegalArgument;
     }
 }
-pub fn @"number->string"(vm: *VM) anyerror!void { // TODO: radix..
+pub fn numberToString(vm: *VM) anyerror!void { // TODO: radix..
     const n = (try vm.stack.pop()).getIntValue();
     try assertArityGreaterOrEq(1, n);
     const number = try vm.stack.pop();
@@ -496,6 +370,7 @@ pub fn _div(vm: *VM) anyerror!void {
     if (n != 1 and n != 2) {
         return error.ArityMismatch;
     }
+    try vm.stack.reverseInPlace(@intCast(n));
     if (hasFloats(vm, n)) {
         var res: f32 = try (try vm.stack.pop()).convertToFloat();
         if (n == 1) {
@@ -517,34 +392,26 @@ pub fn _div(vm: *VM) anyerror!void {
         if (b == 0) {
             return error.IllegalArgument;
         }
-        res = @divExact(res, b);
+        res = @divTrunc(res, b);
         try vm.bldr.newIntNumber(res);
     }
 }
 pub fn _display(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, n);
     const a = try vm.stack.pop();
     a.print(); // todo: prettyprint..
     try vm.stack.push(_void);
 }
 pub fn _displaynl(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, n);
     const a = try vm.stack.pop();
     a.print(); // todo: prettyprint..
     std.debug.print("\n", .{});
     try vm.stack.push(_void);
 }
 pub fn _newline(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(0, n);
     std.debug.print("\n", .{});
     try vm.stack.push(_void);
 }
 pub fn _print(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(1, n);
     const a = try vm.stack.pop();
     a.print(); // todo: prettyprint..
     try vm.stack.push(_void);
@@ -585,17 +452,13 @@ pub fn _timeStop(vm: *VM) anyerror!void {
 //     try vm.pushStackFrame(a, env, 0, .{});
 // }
 
-pub fn @"eq?"(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, n);
+pub fn isEq(vm: *VM) anyerror!void {
     const a = try vm.stack.pop();
     const b = try vm.stack.pop();
     try vm.bldr.newBool(a.equal(&b));
 }
 
-pub fn @"eqv?"(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, n);
+pub fn isEqv(vm: *VM) anyerror!void {
     const a = try vm.stack.pop();
     const b = try vm.stack.pop();
     if (a.getId() == .intNumber and b.getId() == .intNumber) {
@@ -636,9 +499,7 @@ pub fn listEqual(a: *Node.Pair, b: *Node.Pair) bool {
     }
     return listEqual(a.snd.cast(.pair), b.snd.cast(.pair));
 }
-pub fn @"equal?"(vm: *VM) anyerror!void {
-    const n = (try vm.stack.pop()).getIntValue();
-    try assertArityEq(2, n);
+pub fn isEqual(vm: *VM) anyerror!void {
     const a = try vm.stack.pop();
     const b = try vm.stack.pop();
     if (a.getId() != b.getId()) {
@@ -811,12 +672,35 @@ pub fn _error(vm: *VM) anyerror!void {
     }
     return error.UserError;
 }
+pub fn _inspect(vm: *VM) anyerror!void {
+    const x = try vm.stack.pop();
+    if (x.getId() != .procedure) {
+        return error.IllegalArgument;
+    }
+    const p = x.cast(.procedure);
+    std.debug.print("Procedure {} {} \n", .{p.numArgs, p.varargs});
+    var i = p.code;
+    while (true) :(i+=1) {
+        const instr = vm.code.items[i];
+        std.debug.print("{d}:\t ", .{i});
+        instr.print();
+        if (instr == .Return) {
+            break;
+        }
+    }
 
+    try vm.stack.push(_void);
+}
 
-pub const @"+": Prim = .{.name = "+", .exec = add, .varargs = true};
-pub const @"-": Prim = .{.name = "-", .exec = sub, .varargs = true};
+pub const newline: Prim = .{.name = "newline", .exec = _newline,  .numArgs = 0};
+
+pub const @"+": Prim = .{.name = "+", .exec = add,  .varargs = true};
+pub const @"-": Prim = .{.name = "-", .exec = sub,  .varargs = true};
 pub const @"/": Prim = .{.name = "/", .exec = _div, .varargs = true};
 pub const @"*": Prim = .{.name = "*", .exec = _mul, .varargs = true};
+pub const @"=": Prim = .{.name = "=", .exec = numEq,.varargs = true};
+
+pub const @"error": Prim = .{.name = "error", .exec = _error,  .varargs = true};
 
 pub const @"zero?": Prim = .{.name = "zero?", .exec = _isZero, .numArgs = 1};
 pub const @"pair?": Prim = .{.name = "pair?", .exec = isPair,  .numArgs = 1};
@@ -824,18 +708,40 @@ pub const @"null?": Prim = .{.name = "null?", .exec = isNull,  .numArgs = 1};
 pub const @"list?": Prim = .{.name = "list?", .exec = isList,  .numArgs = 1};
 pub const @"positive?": Prim = .{.name = "positive?", .exec = isPositive,  .numArgs = 1};
 pub const @"boolean?": Prim = .{.name = "boolean?", .exec = isBoolean,  .numArgs = 1};
+pub const @"number?": Prim = .{.name = "number?", .exec = isNumber,  .numArgs = 1};
+pub const @"symbol?": Prim = .{.name = "symbol?", .exec = isSymbol,  .numArgs = 1};
+pub const @"integer?": Prim = .{.name = "integer?", .exec = isInteger,  .numArgs = 1};
+pub const @"string?": Prim = .{.name = "string?", .exec = isString,  .numArgs = 1};
+pub const @"real?": Prim = .{.name = "real?", .exec = isReal,  .numArgs = 1};
+pub const not: Prim = .{.name = "not", .exec = _not,  .numArgs = 1};
+pub const inspect: Prim = .{.name = "inspect", .exec = _inspect,  .numArgs = 1};
+
+
+pub const display: Prim = .{.name = "display", .exec = _display,  .numArgs = 1};
+pub const displaynl: Prim = .{.name = "displaynl", .exec = _displaynl,  .numArgs = 1};
+pub const print: Prim = .{.name = "print", .exec = _print,  .numArgs = 1};
+
+
+pub const car: Prim = .{.name = "car", .exec = _car,  .numArgs = 1};
+pub const cdr: Prim = .{.name = "cdr", .exec = _cdr,  .numArgs = 1};
+
+pub const @"number->string": Prim = .{.name = "number->string", .exec = numberToString,  .numArgs = 1};
+pub const @"string->atom": Prim = .{.name = "string->atom", .exec = stringToAtom,  .numArgs = 1};
+//         // .{ "string-append", @"string-append" },
+
+pub const @"eq?": Prim =    .{.name = "eq?",    .exec = isEq,     .numArgs = 2};
+pub const @"eqv?": Prim =   .{.name = "eqv?",   .exec = isEqv,    .numArgs = 2};
+pub const @"equal?": Prim = .{.name = "equal?", .exec = isEqual,  .numArgs = 2};
+
+
+pub const cons: Prim =    .{.name = "cons",    .exec = _cons,     .numArgs = 2};
+pub const @"set-car!": Prim =    .{.name = "set-car!",    .exec = setCar,     .numArgs = 2};
+pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .numArgs = 2};
 
 pub const timeStart: Prim = .{.name = "timeStart", .exec = _timeStart, .numArgs = 0};
 pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1};
 
 
-    //         // .{ "boolean?", @"boolean?" },
-    //         // .{ "number?", @"number?" },
-    //         // .{ "symbol?", @"symbol?" },
-    //         // .{ "macro?", @"macro?" },
-    //         // .{ "integer?", @"integer?" },
-    //         // .{ "string?", @"integer?" },
-    //         // .{ "real?", @"real?" },
 // ------------------------------ macros --------------------------------------
 
 pub fn newList(arena: std.mem.Allocator, xs: []const *AstNode) !*AstNode {
@@ -859,10 +765,47 @@ pub fn _time(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
         return error.ArityMismatch;
     }
     return bldr.newList(&.{
-        try bldr.newAtom("begin"),
-          try bldr.newList(&.{try bldr.newAtom("timeStart")}),
-          try bldr.newList(&.{try bldr.newAtom("timeStop"), params[0]}),
+        bldr.newAtom("begin"),
+          bldr.newList(&.{bldr.newAtom("timeStart")}),
+          bldr.newList(&.{bldr.newAtom("timeStop"), params[0]}),
       });
+}
+pub fn defineMacro(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
+    // TODO: check that it is run only in toplevel
+    if (params.len < 2) {
+        return error.ArityMismatch;
+    }
+
+    if (params[0].id == .list) {
+        const args = params[0].cast(.list).xs;
+        const name = args[0];
+        const lambdaParams = bldr.newList(args[1..]);
+        var lambda = bldr.emptyList(params.len + 1);
+        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
+        lambda.cast(.list).xs[1] = lambdaParams;
+        for (1..params.len) |i| {
+            lambda.cast(.list).xs[i+1] = params[i];
+        }
+
+        return bldr.newList(&.{bldr.newAtom("set-macro!"), name, lambda});
+
+    } else if (params[0].id == .improperList) {
+        const l = params[0].cast(.improperList);
+        const args = l.xs;
+        const name = args[0];
+        const lambdaParams = bldr.newImproperList(args[1..], l.last);
+        var lambda = bldr.emptyList(params.len + 1);
+        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
+        lambda.cast(.list).xs[1] = lambdaParams;
+        for (1..params.len) |i| {
+            lambda.cast(.list).xs[i+1] = params[i];
+        }
+
+        return bldr.newList(&.{bldr.newAtom("set-macro!"), name, lambda});
+    } else {
+        std.debug.print("can't define not atom, got: {}\n", .{params[0].id});
+        return error.IllegalArgument;
+    }
 }
 pub fn _define(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
     if (params.len < 2) {
@@ -874,22 +817,33 @@ pub fn _define(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
             return error.ArityMismatch;
         }
 
-        return bldr.newList(&.{try bldr.newAtom("set!"), params[0], params[1]});
+        return bldr.newList(&.{bldr.newAtom("set!"), params[0], params[1]});
     } else if (params[0].id == .list) {
         const args = params[0].cast(.list).xs;
         const name = args[0];
-        const lambdaParams = try bldr.newList(args[1..]);
-        var lambda = try bldr.emptyList(params.len + 1);
-        lambda.cast(.list).xs[0] = try bldr.newAtom("lambda");
+        const lambdaParams = bldr.newList(args[1..]);
+        var lambda = bldr.emptyList(params.len + 1);
+        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
         lambda.cast(.list).xs[1] = lambdaParams;
         for (1..params.len) |i| {
             lambda.cast(.list).xs[i+1] = params[i];
         }
 
-        return bldr.newList(&.{try bldr.newAtom("set!"), name, lambda});
+        return bldr.newList(&.{bldr.newAtom("set!"), name, lambda});
 
     } else if (params[0].id == .improperList) {
-        @panic("not implemented");
+        const l = params[0].cast(.improperList);
+        const args = l.xs;
+        const name = args[0];
+        const lambdaParams = bldr.newImproperList(args[1..], l.last);
+        var lambda = bldr.emptyList(params.len + 1);
+        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
+        lambda.cast(.list).xs[1] = lambdaParams;
+        for (1..params.len) |i| {
+            lambda.cast(.list).xs[i+1] = params[i];
+        }
+
+        return bldr.newList(&.{bldr.newAtom("set!"), name, lambda});
     } else {
         std.debug.print("can't define not atom, got: {}\n", .{params[0].id});
         return error.IllegalArgument;
@@ -898,107 +852,51 @@ pub fn _define(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
 
 }
 
+
+pub fn genCond(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
+    if (params.len == 0) {
+        return bldr.newList(&.{bldr.newAtom("begin")});
+    }
+    if (params[0].id != .list) {
+        return error.BadSyntax;
+    }
+    const clause = params[0].cast(.list).xs;
+    if (clause[0].id == .atom and std.mem.eql(u8, "else", clause[0].cast(.atom).name)) {
+        if (clause.len == 2) {
+            return clause[1];
+        } else {
+            @panic("not implemented");
+        }
+    }
+    if (clause.len != 2) {
+            @panic("not implemented");
+    }
+    return bldr.newList(&.{bldr.newAtom("if"), clause[0], clause[1], try genCond(bldr, params[1..])});
+}
+pub fn _cond(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
+    // if (params.len == 0) {
+    //     return bldr.newList(&.{bldr.newAtom("begin")});
+    // }
+    return genCond(bldr, params);
+}
+
 pub const define: Macro = .{.name = "define", .exec = _define };
+pub const cond: Macro = .{.name = "cond", .exec = _cond };
+pub const @"define-macro": Macro = .{.name = "define-macro", .exec = defineMacro };
 pub const time: Macro = .{.name = "time", .exec = _time };
     // pub fn createInitialEnv(self: *VM) !void {
     //     _ = &self;
     // //     const xs = [_]struct { []const u8, *const fn (*VM) anyerror!void }{
-    //         // .{ "number->string", @"number->string" },
-    //         // .{ "string->atom", @"string->atom" },
-    //         // .{ "string-append", @"string-append" },
-    //         // .{ "__returnLast", __returnLast },
-    //         // .{ "__discard", __discard },
-    //         // .{ "__retrieve", __retrieve },
-    //         // .{ "__retrieveArg", __retrieveArg },
-    //         // .{ "__ap", __ap },
-    //         // .{ "__ap0", __ap0 },
-    //         // .{ "__if1", __if1 },
-    //         // .{ "zero?", @"zero?" },
-    //         // .{ "__set1", __set1 },
     //         // .{ "apply", apply },
-    //         // .{ "=", @"=" },
-    //         // .{ "__and1", __and1 },
-    //         // .{ "__or1", __or1 },
-    //         // .{ "__cond1", __cond1 },
-    //         // .{ "_define1", _define1 },
-    //         // .{ "eq?", @"eq?" },
-    //         // .{ "eqv?", @"eqv?" },
-    //         // .{ "equal?", @"equal?" },
-    //         // .{ "not", _not },
-    //         // .{ "cons", _cons },
-    //         // .{ "car", _car },
-    //         // .{ "cdr", _cdr },
-    //         // .{ "null?", @"null?" },
-    //         // .{ "pair?", @"pair?" },
-    //         // .{ "list?", @"list?" },
-    //         // .{ "set-car!", @"set-car!" },
-    //         // .{ "set-cdr!", @"set-cdr!" },
-    //         // .{ "display", _display },
-    //         // .{ "displaynl", _displaynl },
-    //         // .{ "newline", _newline },
-    //         // .{ "print", _print },
     //         // .{ "eval", __eval },
-    //         // .{ "eval1", __eval1 },
-    //         // .{ "__time1", __time1 },
-    //         // .{ "__exec", __exec },
-    //         // .{ "printLastEnv", __printLastEnv },
-    //         // .{ "error", __error },
-    //         // .{ "expand", expand },
-    //         // .{ "body", __body },
-    //         // .{ "args", __args },
-    //         // .{ "set-body", @"set-body"},
-    //         // .{ "get-env-ref", @"get-env-ref" },
-    //         // .{ "__case1", __case1 },
-    //         // .{ "addToEnv", __addToEnv },
-    //         // .{ "callerEnv", __callerEnv },
-    //         // .{ "__put1", __put1 },
-    //         // .{ "getAllProcs", __getAllProcs },
     //     // };
     //     // const dontEval = [_]struct { []const u8, *const fn (*VM) anyerror!void }{
-    //         // .{ "if", __if },
     //         // .{ "and", __and },
     //         // .{ "or", __or },
     //         // .{ "cond", __cond },
     //         //
-    //         // // .{ "define", _define },
-    //         // .{ "time", __time },
     //         // .{ "case", __case },
     //         // .{ "set!", @"set!" },
     //         // .{ "put!", @"put!" },
     //         // .{ "define-macro", @"define-macro" },
     //     // };
-    //     // const macros = [_]struct { []const u8, *const fn (*VM) anyerror!void }{
-    //     //     // .{ "macrofoobar", __macrofoobar },
-    //     //     // .{ "define", __define_macro},
-    //     // };
-    //     // try self.newList();
-    //     // for (xs) |x| {
-    //     //     try self.newAtom(x.@"0");
-    //     //     try self.appendToList();
-    //     // }
-    //     // for (dontEval) |x| {
-    //     //     try self.newAtom(x.@"0");
-    //     //     try self.appendToList();
-    //     // }
-    //     // for (macros) |x| {
-    //     //     try self.newAtom(x.@"0");
-    //     //     try self.appendToList();
-    //     // }
-    //     //
-    //     // try self.newList();
-    //     // for (xs) |x| {
-    //     //     // f.cons(f.builtin())
-        //     try self.newBuiltin(x.@"1", x.@"0", false, false);
-        //     try self.appendToList();
-        // }
-        // for (dontEval) |x| {
-        //     try self.newBuiltin(x.@"1", x.@"0", true, false);
-        //     try self.appendToList();
-        // }
-        // for (macros) |x| {
-        //     try self.newBuiltin(x.@"1", x.@"0", true, true);
-        //     try self.appendToList();
-        // }
-        // try self.newEnv();
-    // }
-

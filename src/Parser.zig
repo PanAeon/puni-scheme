@@ -135,6 +135,13 @@ pub const Parser = struct {
             .lparen => {
                 return self.parseList();
             },
+            .vector => {
+                self.token = try self.lexer.nextToken();
+                const xs = (try self.parseList()).cast(.list).xs;
+                var node = try self.arena.create(AstNode.Vector);
+                node.* = .{ .xs = xs };
+                return &node.base;
+            },
             .intNumber => {
                 const n = try std.fmt.parseInt(i48, self.token.slice(self.lexer.yyinput), 0);
                 var node = try self.arena.create(AstNode.IntNumber);
@@ -257,28 +264,60 @@ pub const Builder = struct {
     pub fn init(arena: std.mem.Allocator) Builder {
         return .{ .arena = arena };
     }
-    pub fn emptyList(self: *const Builder, n: usize) !*AstNode {
-       const list = try self.arena.create(AstNode.List);
+    pub fn emptyList(self: *const Builder, n: usize) *AstNode {
+       const list = self.arena.create(AstNode.List) catch @panic("oom");
         
        list.* = .{
-            .xs = try self.arena.alloc(*AstNode, n),
+            .xs = self.arena.alloc(*AstNode, n) catch @panic("oom"),
        };
         return &list.base;
     }
-    pub fn newList(self: *const Builder, xs: []const *AstNode) !*AstNode {
-           const list = try self.arena.create(AstNode.List);
+    pub fn newImproperList(self: *const Builder, xs: []const *AstNode, last: *AstNode) *AstNode {
+           const list = self.arena.create(AstNode.ImproperList) catch @panic("oom");
             
            list.* = .{
-                .xs = try self.arena.dupe(*AstNode, xs),
+              .xs = self.arena.dupe(*AstNode, xs) catch @panic("oom"),
+              .last = last,
            };
             return &list.base;
     }
-    pub fn newAtom(self: *const Builder, name: []const u8) !*AstNode {
-            const atom = try self.arena.create(AstNode.Atom);
+    pub fn newList(self: *const Builder, xs: []const *AstNode) *AstNode {
+           const list = self.arena.create(AstNode.List) catch @panic("oom");
+            
+           list.* = .{
+                .xs = self.arena.dupe(*AstNode, xs) catch @panic("oom"),
+           };
+            return &list.base;
+    }
+    pub fn newAtom(self: *const Builder, name: []const u8) *AstNode {
+            const atom = self.arena.create(AstNode.Atom) catch @panic("oom");
             atom.* = .{
-                .name = name,
+                .name = self.arena.dupe(u8, name) catch @panic("oom"),
             };
         return &atom.base;
+    }
+    pub fn newString(self: *const Builder, name: []const u8) *AstNode {
+            const atom = self.arena.create(AstNode.String) catch @panic("oom");
+            atom.* = .{
+                .s = self.arena.dupe(u8, name) catch @panic("oom"),
+            };
+        return &atom.base;
+    }
+
+    pub fn intNumber(self: *const Builder, n: i48) *AstNode {
+        var node = self.arena.create(AstNode.IntNumber) catch @panic("oom");
+        node.* = .{ .value = n };
+        return &node.base;
+    }
+    pub fn floatNumber(self: *const Builder, f: f32) *AstNode {
+        var node = self.arena.create(AstNode.FloatNumber) catch @panic("oom");
+        node.* = .{ .value = f };
+        return &node.base;
+    }
+    pub fn boolean(self: *const Builder, b: bool) *AstNode {
+        var node = self.arena.create(AstNode.Bool) catch @panic("oom");
+        node.* = .{ .value = b };
+        return &node.base;
     }
 };
 

@@ -57,6 +57,11 @@
 ;; (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
 
+;; and how to mark currently executed lambda in GC? (it shoould be in stack!)
+;; ((lambda (x . xs) xs) 3 4 5)
+
+;; (set! foo (lambda (x . xs) xs))
+
 ;; (if #t (+ 1 2 3) (+ 1 2 3))
 
 ;; '(1 2 (+ 2 3) "" '(3 4) 5 (6 . 7))
@@ -76,79 +81,98 @@
              (myadd (- n 1) (+ r 1))
            )
          )
+         (define (myadd1 n r)
+           (cond 
+             [(zero? n) r]
+             [ else (myadd (- n 1) (+ r 1))]))
+
 ;; "foo"
 ;;
-;; (define (first x) (car x))
-;; (define (second x) (car (cdr x)))
-;; (define (third x) (car (cdr (cdr x))))
-;; (define (head x) (car x))
-;; (define (tail x) (cdr x))
-;; (define (rest x) (cdr x))
-;; (define nil '())
-;; (define empty '())
-;; (define (empty? x) (null? x))
-;; (define (nil? x) (null? x))
-;; ; cool, but we need variable number of lists
-;; (define (append list1 list2)
-;;         (if (null? list1) list2
-;;             (cons (car list1) (append (cdr list1) list2))))
+(define (first x) (car x))
+(define (second x) (car (cdr x)))
+(define (third x) (car (cdr (cdr x))))
+(define (third1 x) (head (tail (tail x))))
+(define (head x) (car x))
+(define (tail x) (cdr x))
+(define (rest x) (cdr x))
+(define nil '())
+(define empty '())
+(define (empty? x) (null? x))
+(define (nil? x) (null? x))
+; cool, but we need variable number of lists
+(define (append list1 list2)
+        (if (null? list1) list2
+            (cons (car list1) (append (cdr list1) list2))))
 ;;
-;; (define (map f lst)
-;;   (cond
-;;     [(empty? lst) empty]
-;;     [else (cons (f (first lst))
-;;                 (map f (rest lst)))]))
+(define (bar x) 
+  (cond 
+    [(zero? x) 0]
+    [(eq? 5 x) 5]
+    [else 1]
+  ))
+
+(define (map0 f lst) '())
+;; (define (map1 f lst) ; panic incorrect pos 1
+;;     (cons (f (car lst)) (cdr lst)))
+(define (map1 f lst) ; panic incorrect pos 1
+    (begin (f 3) (cdr lst)))
+
+(define (map f lst)
+  (cond
+    [(empty? lst) empty]
+    [else (cons (f (first lst))
+                (map f (rest lst)))]))
 ;;
 ;;
-;; (define (memv x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(eqv? x (head xs)) xs]
-;;     [else (memv x (tail xs))]))
+(define (memv x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(eqv? x (head xs)) xs]
+    [else (memv x (tail xs))]))
+
+(define (memq x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(eq? x (head xs)) xs]
+    [else (memq x (tail xs))]))
+
+(define (member x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(equal? x (head xs)) xs]
+    [else (member x (tail xs))]))
+
+(define (assoc x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(equal? x (head (head xs))) (head xs)]
+    [else (assoc x (tail xs))]))
 ;;
-;; (define (memq x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(eq? x (head xs)) xs]
-;;     [else (memq x (tail xs))]))
-;;
-;; (define (member x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(equal? x (head xs)) xs]
-;;     [else (member x (tail xs))]))
-;;
-;; (define (assoc x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(equal? x (head (head xs))) (head xs)]
-;;     [else (assoc x (tail xs))]))
-;;
-;; (define (assq x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(eq? x (head (head xs))) (head xs)]
-;;     [else (assq x (tail xs))]))
-;;
-;; (define (assv x xs) 
-;;   (cond 
-;;     [(empty? xs) #f]
-;;     [(eqv? x (head (head xs))) (head xs)]
-;;     [else (assv x (tail xs))]))
-;;
-;; (define (flatten xs)
-;;   (cond
-;;     [(empty? xs) empty]
-;;     [else (append (first xs)
-;;                 (flatten (rest xs))])))
-;;
+(define (assq x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(eq? x (head (head xs))) (head xs)]
+    [else (assq x (tail xs))]))
+
+(define (assv x xs) 
+  (cond 
+    [(empty? xs) #f]
+    [(eqv? x (head (head xs))) (head xs)]
+    [else (assv x (tail xs))]))
+
+(define (flatten xs)
+  (cond
+    [(empty? xs) empty]
+    [else (append (first xs)
+                (flatten (rest xs))])))
+
 ;; ;; I prey for the gods of tco
 ;; (define (flatMap f lst)
 ;;    (flatten (map f lst)))
 ;;
-;; (define (add1 x) (+ 1 x))
-;; (define (sub1 x) (- x 1))
-;; (define list (lambda x x))
+(define (add1 x) (+ 1 x))
+(define (sub1 x) (- x 1))
+(define list (lambda x x))
 ;;
 ;;
 ;;
@@ -164,21 +188,21 @@
 ;;
 ;;
 ;; ;;; yeah, simpler to add special form..
-;; (define-macro (def name . body)
-;;   (if (symbol? name)
-;;     (append (list 'put! name) body)
-;;
-;;     (list 'put! (head name) (flatten (list (list  'lambda) (list (tail  name)) body '())))
-;;              ))
+(define-macro (def name . body)
+  (if (symbol? name)
+    (append (list 'set! name) body)
+
+    (list 'set! (head name) (flatten (list (list  'lambda) (list (tail  name)) body '())))
+             ))
 ;;
 ;; ;;; ------------- pattern matching ------------
 ;; ;;; -------------------------------------------
-;; ;; (define-macro (foo expr)
-;; ;;   ;; (display expr)
-;; ;;   (if (equal? '+ (car expr))
-;; ;;     (set-car! expr '-)
-;; ;;     (set-car! expr '+))
-;; ;;   expr)
+;; (define-macro (foo expr)
+;;   ;; (display expr)
+;;   (if (equal? '+ (car expr))
+;;     (set-car! expr '-)
+;;     (set-car! expr '+))
+;;   expr)
 ;;
 ;; ;; TODO: macroexpand?
 ;;

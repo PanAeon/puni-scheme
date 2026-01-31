@@ -100,6 +100,9 @@ pub fn Stack(comptime T: type) type {
             if (self.size < n) {
                 return error.StackUnderflow;
             }
+            if (n < 2) {
+                return;
+            }
             var tmp: T = undefined; 
             for (0..(n/2)) |i| {
                 tmp = self.items[self.size - 1 - i];

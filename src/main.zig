@@ -19,158 +19,6 @@ const Prim = Primitives.Prim;
 const Compiler = @import("Compiler.zig");
 const VMError = error{ ExpectedList, StackOverflow, StackUnderflow, UnknownName, IllegalDefine, MultipleExprsAfterId, NotAList, NotCallable, ArityMismatch, NotExhastiveMatch, IllegalArgument, AssignmentDisallowed, InvalidSyntaxDefinition, NotImplemented, UserError, ArgsTooLong, MissingElseBranch };
 
-
-
-
-
-
-
-
-
-
-
-
-// pub fn __ap0(vm: *VM) anyerror!void {
-//     const n = (try vm.returnStack.pop()).getIntValue();
-//     const f = try vm.returnStack.pop();
-//     vm.protect(f);
-//     if (f.getId() == .procedure or f.getId() == .currentCont or f.getId() == .primitive) {
-//         if (f.dontEvalArgs()) {
-//             try vm.pushStackFrame(vm.builtins.__ap, vm.env, n, .{ .isReturn = true });
-//             var args = (try vm.returnStack.pop());
-//             try vm.returnStack.push(f);
-//             while (args.getId() != .nil) {
-//                 try vm.returnStack.push(args.head());
-//                 args = args.tail();
-//             }
-//         } else {
-//             try vm.pushStackFrame(vm.builtins.__ap, vm.env, n, .{ .isReturn = true });
-//             try vm._evalList();
-//             try vm.returnStack.push(f);
-//         }
-//     } else {
-//         return error.NotCallable;
-//     }
-// }
-// pub fn __ap(vm: *VM) anyerror!void {
-//     // vm.printReturnStack();
-//     const _n = try vm.returnStack.pop();
-//     const n = _n.getIntValue();
-//     if (n > vm.argsBuffer.len) {
-//         return error.ArgsTooLong;
-//     }
-//     var arr = std.ArrayList(NodePtr).initBuffer(&vm.argsBuffer);
-//     for (0..@intCast(n)) |_| {
-//         const node = try vm.returnStack.pop();
-//         vm.protect(node);
-//         arr.appendAssumeCapacity(node);
-//     }
-//     const f = try vm.returnStack.pop();
-//     if (f.getId() == .primitive) {
-//         for (0..@intCast(n)) |i| {
-//             try vm.returnStack.push(arr.items[i]);
-//         }
-//         try vm.returnStack.push(_n);
-//         const prim = f.cast(.primitive);
-//         try prim.body(vm);
-//
-//         if (prim.isMacro) {
-//             if (prim.expandMacro) {
-//                 prim.expandMacro = false; // yeah, won't work on recursive macros..
-//             } else {
-//               try vm.pushStackFrame(vm.builtins.__exec, vm.env, 0, .{ .isReturn = true });
-//             }
-//         }
-    // } else if (f.getId() == .procedure) {
-    //     // try self.returnStack.push(f);
-    //     // std.debug.print("procedure>>\n", .{});
-    //     // Node.debugprint(f);
-    //     const p = f.cast(.procedure);
-    //     // Node.debugprint(try self.head());
-    //     // try vm._evalList(); // eval args first
-    //     // Node.debugprint(p.env, "fact env:");
-    //     const varargs = p.args.isImproperList();
-    //     const m = p.args.len();
-    //
-    //     try vm.newList();
-    //
-    //     if (varargs) {
-    //         // std.debug.print("{d}, {d}", .{n, m});
-    //         try vm.newList();
-    //         if(n + 1 < m) {
-    //             return error.ArityMismatch;
-    //         }
-    //         for (@intCast(0)..@intCast(n + 1 - m)) |i| {
-    //             try vm.returnStack.push(arr.items[i]);
-    //             try vm.appendToList();
-    //         }
-    //         try vm.appendToList();
-    //         for (@intCast(n - m + 1)..@intCast(n)) |i| {
-    //             try vm.returnStack.push(arr.items[i]);
-    //             try vm.appendToList();
-    //         }
-    //     } else {
-    //         if(n != m) {
-    //             if (getEnvReverse(vm.env, f)) |name| {
-    //                 std.debug.print("in {s} ; expected: {d} actual: {d} \n", .{name, m, n});
-    //             } else {
-    //                 f.debugprint("<<error somewhere here");
-    //                 std.debug.print("expected: {d} actual: {d} \n", .{m, n});
-    //             }
-    //             return error.ArityMismatch;
-    //         }
-    //         for (0..@intCast(n)) |i| {
-        //         try vm.returnStack.push(arr.items[i]);
-        //         try vm.appendToList();
-        //     }
-        // }
-        // const args = try vm.returnStack.pop();
-        // vm.protect(args);
-        // // try self.returnStack.push(self.env);
-        // // try self.push(self.env);
-        // const prevEnv = vm.env;
-        // // if (!p.isMacro) { // really bad idea
-        //     vm.env = p.env;
-        // // }
-        // // p.args.debugprint("names, we pushing to env"); !!
-        // try vm.returnStack.push(p.args); // first names;
-        // if (varargs) {
-        //     try vm.mkProperList();
-        // }
-        //
-        // try vm.returnStack.push(args); // then data?
-        // try vm.newEnv();
-        //
-        // try vm.newList();
-        // try vm.newList();
-        // try vm.newEnv(); // add extra env;
-        // if (p.isMacro) {
-        //     if (p.expandMacro) {
-        //         p.expandMacro = false; // yeah, won't work on recursive macros..
-        //     } else {
-        //       try vm.pushStackFrame(vm.builtins.__exec, prevEnv, 0, .{ .isReturn = true });
-        //     }
-        //
-        //     try vm.pushStackFrame(p.body, vm.env, 0, .{});
-        // } else {
-        //     // if (p.optimized) |opt| {
-        //     //     try vm.pushStackFrame(opt, vm.env, 0, .{});
-        //     // } else {
-        //     try vm.pushStackFrame(p.body, vm.env, 0, .{});
-        //     // }
-        // }
-//     } else if (f.getId() == .currentCont) {
-//         try vm.restore(f.cast(.currentCont));
-//         for (0..@intCast(n)) |i| {
-//             try vm.returnStack.push(arr.items[i]);
-//         }
-//         // vm.printReturnStack();
-//         // vm.printStack();
-//     } else {
-//         std.debug.print("can't apply: {any}\n", .{f.getId()});
-//         return error.NotCallable;
-//     }
-// }
 pub const MaxStack: usize = 1024;
 pub const MaxReturnStack: usize = 1024;
 pub const MaxProtectStack: usize = 1024;
@@ -193,6 +41,7 @@ const InstructionTag = enum {
     Save,
     Fn,
     Primitive,
+    MSet,
     Halt
 };
 pub const Instruction = union(InstructionTag) {
@@ -211,6 +60,7 @@ pub const Instruction = union(InstructionTag) {
     Save: i64, // return address
     Fn: Function, // create closure from arg and current env, push result on the stack
     Primitive: *const Prim,
+    MSet: NodePtr,
     Halt,
 
     const Function = struct {
@@ -232,14 +82,15 @@ pub const Instruction = union(InstructionTag) {
                  },
                 .Primitive => |p| std.debug.print("Primitive {s}\n", .{p.name}),
                 .LVar => |offset|   std.debug.print("Lvar {d} {d}\n", .{offset.@"0", offset.@"1"}),
-                .GVar => |p|  std.debug.print("GVar {any}\n", .{p}),
+                .GVar => |p|  std.debug.print("GVar {s}\n", .{p.cast(.atom).name}),
                 .LSet => |offset|  std.debug.print("Lset {d} {d}\n", .{offset.@"0", offset.@"1"}),
-                .GSet => |p|  std.debug.print("GSet {any}\n", .{p}),
+                .GSet => |p|  std.debug.print("GSet {s}\n", .{p.cast(.atom).name}),
                 .Args => |n| std.debug.print("Args {d}\n", .{n}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
                 .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => std.debug.print("Pop\n", .{}),
+                .MSet => |p|  std.debug.print("MSet {any}\n", .{p}),
                 .Return => std.debug.print("Return\n", .{}),
         }
     }
@@ -255,6 +106,8 @@ pub const VM = struct {
     code: std.ArrayList(Instruction),
     ip: i64 = 0,
     globalEnv: std.StringHashMap(NodePtr),
+    symbolMap: std.StringHashMap(NodePtr),
+    macroMap: std.StringHashMap(NodePtr),
     consAlloctor: *ConsPage,
     env: NodePtr = _nil,
     lastNode: ?NodePtr = null,
@@ -286,6 +139,8 @@ pub const VM = struct {
             .code = try std.ArrayList(Instruction).initCapacity(allocator, 16 * 1024),
             .data = try std.ArrayList(NodePtr).initCapacity(allocator, 16 * 1024),
             .globalEnv = std.StringHashMap(NodePtr).init(allocator),
+            .symbolMap = std.StringHashMap(NodePtr).init(allocator),
+            .macroMap = std.StringHashMap(NodePtr).init(allocator),
             .verboseGC = verboseGC,
             .consAlloctor = try ConsPage.create(),
             .bldr = NodeBuilder.init(vm, allocator),
@@ -298,6 +153,7 @@ pub const VM = struct {
         self.stack.clear();
         self.data.shrinkRetainingCapacity(0);
         self.globalEnv.clearRetainingCapacity();
+        self.macroMap.clearRetainingCapacity();
         self.disableGC = false;
         self.env = _nil;
         self.gc();
@@ -305,6 +161,8 @@ pub const VM = struct {
         self.data.deinit(self.allocator);
         self.stack.deinit(self.allocator);
         self.globalEnv.deinit();
+        self.symbolMap.deinit();
+        self.macroMap.deinit();
         self.protectStack.deinit(self.allocator);
         self.consAlloctor.destroy();
         self.allocator.destroy(self);
@@ -330,6 +188,10 @@ pub const VM = struct {
             mark(d);
         }
         var iter = self.globalEnv.valueIterator();
+        while (iter.next()) |x| {
+            mark(x.*); // will break if mark is moved to Ptr itself..
+        }
+        iter = self.macroMap.valueIterator();
         while (iter.next()) |x| {
             mark(x.*); // will break if mark is moved to Ptr itself..
         }
@@ -371,7 +233,6 @@ pub const VM = struct {
             },
         }
     }
-    // ok, so what to do with prims in globalEnv? good question
     pub fn cleanUpGlobalEnv(self: *VM) !void {
         var toBeDeleted = try std.ArrayList(*[]const u8).initCapacity(self.allocator, 1024);
         defer toBeDeleted.deinit(self.allocator);
@@ -387,6 +248,21 @@ pub const VM = struct {
             self.globalEnv.removeByPtr(key_ptr);
         }
     }
+    pub fn cleanUpSymbolMap(self: *VM) !void {
+        var toBeDeleted = try std.ArrayList(*[]const u8).initCapacity(self.allocator, 1024);
+        defer toBeDeleted.deinit(self.allocator);
+
+        var it = self.symbolMap.iterator();
+        while (it.next()) |x| {
+            if (x.value_ptr.isBoxed() and !x.value_ptr.raw().marked) {
+                try toBeDeleted.append(self.allocator, x.key_ptr);
+                // need to remove the key..
+            }
+        }
+        for (toBeDeleted.items) |key_ptr| {
+            self.symbolMap.removeByPtr(key_ptr);
+        }
+    }
     pub fn sweep(self: *VM) void {
         // self.consAlloctor.gc();
         var object: *?NodePtr = &self.lastNode;
@@ -396,10 +272,8 @@ pub const VM = struct {
                 const unreached = object.*.?;
                 object.* = raw.next;
                 const id = unreached.getId();
+                // std.debug.print("removing {any}\n", .{id});
                 switch (id) {
-                    .bool => {
-                        self.allocator.destroy(unreached.cast(.bool));
-                    },
                     .string => {
                         self.allocator.free(unreached.cast(.string).s);
                         self.allocator.destroy(unreached.cast(.string));
@@ -427,7 +301,7 @@ pub const VM = struct {
                         const p = unreached.cast(.procedure);
                         self.allocator.destroy(p);
                     },
-                    .nil, .void, .intNumber, .floatNumber => {},
+                    .nil, .void, .intNumber, .floatNumber, .bool => {},
                 }
                 self.numObjects -= 1;
             } else {
@@ -443,7 +317,8 @@ pub const VM = struct {
         const before = std.time.Instant.now() catch @panic("time failure");
         const numObjects = self.numObjects;
         self.markAll();
-        self.cleanUpGlobalEnv() catch { @panic("something went wrong"); };
+        self.cleanUpSymbolMap() catch { @panic("something went wrong"); };
+        // self.cleanUpGlobalEnv() catch { @panic("something went wrong"); };
         self.sweep();
         self.maxObjects = if (self.numObjects <  InitialGCThreshold) InitialGCThreshold else self.numObjects * 2;
         const after = std.time.Instant.now() catch @panic("again");
@@ -459,6 +334,7 @@ pub const VM = struct {
 
     pub fn run(self: *VM) anyerror!void {
         while (true) : (self.ip += 1) {
+            self.clearProtected();
             const instr = self.code.items[@intCast(self.ip)];
             switch (instr) {
                 .Halt => return,
@@ -534,19 +410,18 @@ pub const VM = struct {
                 //     self.ip = @as(i64, @intCast(f.code)) - 1;
                 // },
                 .Save => |offset| {
+                    try self.stack.push(self.env);
                     try self.bldr.newIntNumber(@intCast(self.ip + offset)); // push return value to the stack
                 },
                 .JCall => |numArgs| { // FIXME: now i need to rotate params
-                    _ = &numArgs;
-                    // std.debug.print("num args? {d}\n", .{numArgs});
-                    // self.printStack();
-                    // @panic("stop");
-                    const f = try (try self.stack.pop()).tryCast(.procedure);
+                    const _f = try self.stack.pop();
+                    self.protect(_f);
+                    const f = try _f.tryCast(.procedure);
                     if (f.varargs) {
-                        if (numArgs < f.numArgs) {
+                        if (numArgs + 1 < f.numArgs) {
                             return error.ArityMismatch;
                         }
-                        const numLast = numArgs - f.numArgs + 1;
+                        const numLast = numArgs + 1 - f.numArgs ;
                         try self.bldr.newList();
                         for (0..numLast) |_| {
                             try self.bldr.appendToListRev();
@@ -556,17 +431,18 @@ pub const VM = struct {
                             return error.ArityMismatch;
                         }
                     }
-                    // self.printStack();
-                    // try self.stack.shift(numArgs + 1);
-                    // self.printStack();
-                    // _ = &f;
-                    // @panic("stop");
                     self.env = f.env;
                     self.ip = @as(i64, @intCast(f.code)) - 1;
+                },
+
+                .MSet => |p| {
+                    const name = (try p.tryCast(.atom)).name;
+                    try self.macroMap.put(name, try self.stack.pop());
                 },
                 .Return => {
                     const value = try self.stack.pop();
                     const addr  = try self.stack.pop();
+                    self.env = try self.stack.pop();
                     self.ip = (try addr.tryGetIntValue()) - 1;
                     try self.stack.push(value);
                 },
@@ -577,6 +453,7 @@ pub const VM = struct {
     pub fn createProcedure(self: *VM, f: Instruction.Function) anyerror!void {
         try self.bldr.newEnv(f.numArgs, false);
         try self.bldr.newProc(@intCast(f.code), f.varargs, f.numArgs);
+        // self.lastProc = try self.stack.head();
     }
 
     pub fn printStack(self: *VM) void {
@@ -592,6 +469,7 @@ pub const VM = struct {
         self.stack.size = cont.stack.len;
         for (0..self.stack.size) |i| self.stack.items[i] = cont.stack[i];
     }
+
 };
 // Closures and Scope: When a lambda expression is evaluated, it "remembers" the environment in which it was created.
 // This forms a closure, allowing the created procedure to access variables that were in scope at the time it was defined,
@@ -643,7 +521,7 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
                 else => {},
             }
             lineBuffer.clearRetainingCapacity();
-            // vm.returnStack.clear();
+            // vm.stack.clear();
             try stdout.print("parse error: {any}\n", .{e});
             try stdout.flush();
             prompt = "==> ";
@@ -656,10 +534,10 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
             continue :repl;
         };
 
-    for (vm.code.items, 0..) |*instr, i| {
-        std.debug.print("{d}:\t ", .{i});
-        instr.print();
-    }
+    // for (vm.code.items, 0..) |*instr, i| {
+    //     std.debug.print("{d}:\t ", .{i});
+    //     instr.print();
+    // }
         vm.env = _nil;
         vm.ip = start;
         vm.run() catch |e| {
@@ -708,30 +586,37 @@ pub fn main() !void {
     var parser = Parser.init();
     // vm.disableGC = true;
     {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const file = try std.Io.Dir.cwd().openFile(threaded.io(), "scheme/init.scm", .{});
-    var buffer: [128*1024]u8 = undefined;
-    const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
-    buffer[len] = 0;
-    const nodes = try parser.parse(buffer[0..len :0], arena.allocator());
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const file = try std.Io.Dir.cwd().openFile(threaded.io(), "scheme/init.scm", .{});
+        var buffer: [128*1024]u8 = undefined;
+        const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
+        buffer[len] = 0;
+        const nodes = try parser.parse(buffer[0..len :0], arena.allocator());
 
-    var compiler = Compiler.init(arena.allocator(), allocator, vm);
-    defer compiler.deinit();
+        var compiler = Compiler.init(arena.allocator(), allocator, vm);
+        defer compiler.deinit();
 
-    compiler.getPrims();
+        compiler.getPrims();
 
 
-    const start = try compiler.compile(nodes);
+        const start = try compiler.compile(nodes);
 
-    for (vm.code.items, 0..) |*instr, i| {
-        std.debug.print("{d}:\t ", .{i});
-        instr.print();
-    }
-    vm.ip = start;
+        // for (vm.code.items, 0..) |*instr, i| {
+        //     std.debug.print("{d}:\t ", .{i});
+        //     instr.print();
+        // }
+        vm.ip = start;
 
-    try vm.run();
-    vm.printStack();
+        try vm.run();
+
+        for (0..vm.stack.size) |i| {
+            const item = vm.stack.items[i];
+            if (item.getId() != .void) {
+                item.debugprint("");
+            }
+        }
+        vm.stack.clear();
     }
     defer std.debug.print("...\n", .{});
 
