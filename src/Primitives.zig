@@ -108,31 +108,42 @@ pub fn sub(vm: *VM) anyerror!void {
 
 
 
-// pub fn apply(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     try assertArityGreaterOrEq(2, n);
-//     // const f = try vm.stack.pop();
-//     if (n > 2) {
-//         for (0..@intCast(n-2)) |_| {
-//             const arg = try vm.stack.pop();
-//             vm.protect(arg);
-//         }
-//     }
-//     const args = (try vm.stack.pop()); // last ones
-//     if (!(args.getId() == .pair or args.getId() == .nil)) {
-//         return error.ExpectedList;
-//     }
-//     // const m = args.len();
-//     // try vm.pushStackFrame(vm.builtins.__ap, vm.env, m+n-2, .{ .isReturn = true });
-//
-//     try vm.stack.push(args);
-//     // try vm._evalList();
-//     for (0..@intCast(n-2)) |_| {
-//         const x = try vm.protectStack.pop();
-//         // try vm.pushStackFrame(x, vm.env, 0, .{});
-//     }
-//     // try vm.pushStackFrame(f, vm.env, args.len(), .{});
-// }
+pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
+    var args = try vm.stack.pop(); // last ones
+    const _f = try vm.stack.pop();
+    if (!(args.getId() == .pair or args.getId() == .nil)) {
+        return error.ExpectedList;
+    }
+
+    try vm.stack.push(vm.env);
+    try vm.bldr.newIntNumber(@intCast(vm.ip + 1)); // push return value to the stack
+
+    var numArgs:u32 = 0;
+    while (args.getId() != .nil) {
+        try vm.stack.push(args.cast(.pair).fst);
+        numArgs += 1;
+        args = args.cast(.pair).snd;
+    }
+
+    // unfortunately have to inline this here
+                    const f = try _f.tryCast(.procedure);
+                    if (f.varargs) {
+                        if (numArgs + 1 < f.numArgs) {
+                            return error.ArityMismatch;
+                        }
+                        const numLast = numArgs + 1 - f.numArgs ;
+                        try vm.bldr.newList();
+                        for (0..numLast) |_| {
+                            try vm.bldr.appendToListRev();
+                        }
+                    } else {
+                        if (f.numArgs != numArgs) {
+                            return error.ArityMismatch;
+                        }
+                    }
+                    vm.env = f.env;
+                    vm.ip = @as(i64, @intCast(f.code)) - 1;
+}
 
 
 
@@ -737,6 +748,9 @@ pub const @"equal?": Prim = .{.name = "equal?", .exec = isEqual,  .numArgs = 2};
 pub const cons: Prim =    .{.name = "cons",    .exec = _cons,     .numArgs = 2};
 pub const @"set-car!": Prim =    .{.name = "set-car!",    .exec = setCar,     .numArgs = 2};
 pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .numArgs = 2};
+
+
+pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};
 
 pub const timeStart: Prim = .{.name = "timeStart", .exec = _timeStart, .numArgs = 0};
 pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1};

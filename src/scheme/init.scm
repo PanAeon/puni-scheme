@@ -73,7 +73,7 @@
 ;; (define foo 3)
 ;; (define (g x) (begin (+ 1 6) (+ 1 6) (+ 1 x)))
 ;; (g 3)
-
+;; (define (+ . args) (+ ,@args))
 
          (define (myadd n r)
            (if (zero? n)

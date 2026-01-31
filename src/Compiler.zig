@@ -531,8 +531,37 @@ pub fn genQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction
 }
 
 
+pub fn genQuasiQuoteList(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyerror!void {
+    const bldr = &self.vm.bldr;
+    try bldr.newList();
+    if (xs.len == 0) {
+        if (last) |l|{
+           const splice = try self.genQuasiQuoteInner(l);
+           if (splice) {
+                return error.InvalidContext;
+           }
 
-pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
+        } else {
+            try bldr.newList();
+            try bldr.appendToList();
+            try bldr.newAtom("quote");
+            try bldr.appendToList();
+        }
+    } else {
+         try self.genQuasiQuoteList(xs[1..], last);
+         try bldr.appendToList();
+         const splice = try self.genQuasiQuoteInner(xs[0]);
+         try bldr.appendToList();
+         if (splice) {
+            try bldr.newAtom("append");
+         } else {
+            try bldr.newAtom("cons");
+         }
+         try bldr.appendToList();
+    }
+}
+// cons list and append
+pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!bool {
     const bldr = &self.vm.bldr;
     switch (x.id) {
         .atom => { 
@@ -548,80 +577,30 @@ pub fn genQuasiQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
         .bool => try bldr.newBool(x.cast(.bool).value),
         .list => {
             const xs = x.cast(.list).xs;
-            try bldr.newList();
-            for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[xs.len - 1 - i]);
-                try bldr.appendToList();
-            }
+            try self.genQuasiQuoteList(xs, null);
         },
         .improperList => {
-            const l = x.cast(.improperList);
-            try self.genQuoteInner(l.last);
-            const xs = l.xs;
-            for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[xs.len - 1 - i]);
-                try bldr.appendToList();
-            }
+            const xs = x.cast(.improperList).xs;
+            try self.genQuasiQuoteList(xs, x.cast(.improperList).last);
         },
-        .vector => {
-            const xs = x.cast(.vector).xs;
-            for (0..xs.len) |i| {
-                try self.genQuoteInner(xs[i]);
-            }
-            try bldr.newVector(xs.len, true);
-        },
-        .quote => { 
-            try bldr.newList();
-            const expr = x.cast(.quote).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try bldr.newAtom("quote");
-            try bldr.appendToList();
-        },
-        .quasiquote => { 
-            try bldr.newList();
-            const expr = x.cast(.quasiquote).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("quasiquote");
-            try bldr.appendToList();
-        },
-        .unquote => { 
-            try bldr.newList();
+        .unquote => {
             const expr = x.cast(.unquote).value;
             try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("unquote");
-            try bldr.appendToList();
         },
         .unquoteSplicing => {
-            try bldr.newList();
             const expr = x.cast(.unquoteSplicing).value;
             try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("unquote-splicing");
-            try bldr.appendToList();
+            return true;
         },
+        else => {@panic("not implemented");},
     }
+    return false;
 }
 
-// pub fn combineQuasiquote(self: *Compiler, left: NodePtr, right: NodePtr, x: NodePtr) void {
-// }
-// (defun combine-quasiquote (left right x)
-//   "Combine left and right (car and cdr), possibly re-using x."
-//   (cond ((and (constantp left) (constantp right))
-//          (if (and (eql (eval left) (first x))
-//                   (eql (eval right) (rest x)))
-//              (list 'quote x)
-//              (list 'quote (cons (eval left) (eval right)))))
-//         ((null right) (list 'list left))
-//         ((starts-with right 'list)
-//          (list* 'list left (rest right)))
-//         (t (list 'cons left right))))
 
 
 pub fn genQuasiQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction)) anyerror!void {
-    try self.genQuasiQuoteInner(x);
+    _ = try self.genQuasiQuoteInner(x);
     const c = try self.vm.stack.pop();
      
     try self.vm.data.append(self.allocator, c);
