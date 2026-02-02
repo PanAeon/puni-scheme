@@ -528,150 +528,8 @@ pub fn isEqual(vm: *VM) anyerror!void {
     try vm.bldr.newBool(false);
 }
 
-// If no exprs are provided, then result is #t.
-//
-// If a single expr is provided, then it is in tail position, so the results of the and expression
-// are the results of the expr.
-//
-// Otherwise, the first expr is evaluated. If it produces #f, the result of the and expression is #f.
-// Otherwise, the result is the same as an and expression with the remaining exprs in tail position with
-// respect to the original and form.
-// pub fn __and(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     if (n == 0) {
-//         try vm.bldr.newBool(true);
-//     } else if (n == 1) {
-//         const expr = try vm.stack.pop();
-//         try vm.pushStackFrame(expr, vm.env, 0, .{});
-//     } else {
-//         const expr = try vm.stack.pop();
-//         try vm.pushStackFrame(vm.getBuiltin("__and1"), vm.env, n - 1, .{ .isReturn = true });
-//         try vm.pushStackFrame(expr, vm.env, 0, .{});
-//     }
-// }
-// pub fn __and1(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     const res = try vm.stack.pop();
-//     if (res.getId() == .bool and res.equal(&@"#f")) {
-//         for (0..@intCast(n)) |_| try vm.stack.drop1();
-//         try vm.stack.push(res);
-//     } else {
-//         try vm.pushStackFrame(vm.getBuiltin("and"), vm.env, n, .{ .isReturn = true });
-//     }
-// }
 
-// pub fn __or(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     if (n == 0) {
-//         try vm.bldr.newBool(false);
-//     } else if (n == 1) {
-//         const expr = try vm.stack.pop();
-//         try vm.pushStackFrame(expr, vm.env, 0, .{});
-//     } else {
-//         const expr = try vm.stack.pop();
-//         try vm.pushStackFrame(vm.getBuiltin("__or1"), vm.env, n - 1, .{ .isReturn = true });
-//         try vm.pushStackFrame(expr, vm.env, 0, .{});
-//     }
-// }
-// pub fn __or1(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     const res = try vm.stack.pop();
-//     if (res.getId() != .bool or (res.getId() == .bool and !(res.equal(&@"#f")))) {
-//         for (0..@intCast(n)) |_| try vm.stack.drop1();
-//         try vm.stack.push(res);
-//     } else {
-//         try vm.pushStackFrame(vm.getBuiltin("or"), vm.env, n, .{ .isReturn = true });
-//     }
-// }
 
-// pub fn __cond(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     if (n == 0) {
-//         try vm.stack.push(_void);
-//     } else {
-//         const expr = try (try vm.stack.pop()).tryCast(.pair);
-//         const cond = expr.fst;
-//         if (cond.getId() == .atom and std.mem.eql(u8, "else", cond.cast(.atom).name)) {
-//             if (expr.snd.getId() == .nil) {
-//                 try vm.stack.push(_void);
-//             } else {
-//                 const body = expr.snd.head();
-//                 try vm.stack.push(body);
-//             }
-//             try vm.pushStackFrame(vm.getBuiltin("__cond1"), vm.env, n - 1, .{ .isReturn = true });
-//             try vm.bldr.newBool(true);
-//             return;
-//         }
-//         if (expr.snd.getId() == .nil) {
-//             try vm.stack.push(cond);
-//         } else {
-//             const body = expr.snd.head();
-//             try vm.stack.push(body);
-//         }
-//         try vm.pushStackFrame(vm.getBuiltin("__cond1"), vm.env, n - 1, .{ .isReturn = true });
-//         try vm.pushStackFrame(cond, vm.env, 0, .{});
-//     }
-// }
-// pub fn __cond1(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     const res = try vm.stack.pop();
-//     if (res.getId() != .bool or (res.getId() == .bool and res.equal(&@"#t"))) {
-//         const body = try vm.stack.pop();
-//         for (0..@intCast(n)) |_| try vm.stack.drop1();
-//         try vm.pushStackFrame(body, vm.env, 0, .{});
-//     } else {
-//         _ = try vm.stack.pop();
-//         try vm.pushStackFrame(vm.getBuiltin("cond"), vm.env, n, .{ .isReturn = true });
-//     }
-// }
-// pub fn __case(vm: *VM) anyerror!void {
-//     const _n = try vm.stack.pop();
-//     const n = _n.getIntValue();
-//     try assertArityGreaterOrEq(1, n);
-//     if (n == 1) {
-//         try vm.stack.push(_void);
-//     } else {
-//         const expr = try vm.stack.pop();
-//         try vm.pushStackFrame(vm.getBuiltin("__case1"), vm.env, n - 1, .{ .isReturn = true });
-//         try vm.pushStackFrame(expr, vm.env, 0, .{});
-//     }
-// }
-// pub fn contains(xs: *Node.Pair, x: *const NodePtr) anyerror!bool { // FIXME: replace with iteration
-//     if (equal(&xs.fst, x)) {
-//         return true;
-//     }
-//     if (xs.snd.getId() == .nil) {
-//         return false;
-//     }
-//     return contains(try xs.snd.tryCast(.pair), x);
-// }
-// pub fn __case1(vm: *VM) anyerror!void {
-//     const _n = try vm.stack.pop();
-//     const n = _n.getIntValue();
-//     if (n == 0) {
-//         _ = try vm.stack.pop();
-//         try vm.stack.push(_void);
-//         return;
-//     }
-//     const value = try vm.stack.pop();
-//     vm.protect(value);
-//     const _clause = try vm.stack.pop();
-//     vm.protect(_clause);
-//     const clause = try _clause.tryCast(.pair);
-//     if ((clause.fst.getId() == .atom and std.mem.eql(u8, "else", clause.fst.cast(.atom).name))) {
-//         for (0..@intCast(n - 1)) |_| try vm.stack.drop1();
-//         try vm.pushStackFrame(clause.snd.head(), vm.env, 0, .{});
-//         return;
-//     }
-//     const xs = (try clause.fst.tryCast(.pair));
-//     if (try contains(xs, &value)) {
-//         for (0..@intCast(n - 1)) |_| try vm.stack.drop1();
-//         try vm.pushStackFrame(clause.snd.head(), vm.env, 0, .{});
-//         return;
-//     }
-//     try vm.stack.push(value);
-//     try vm.pushStackFrame(vm.getBuiltin("__case1"), vm.env, n - 1, .{ .isReturn = true });
-// }
 
 
 pub fn _error(vm: *VM) anyerror!void {
@@ -771,21 +629,6 @@ pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1
 
 // ------------------------------ macros --------------------------------------
 
-pub fn newList(arena: std.mem.Allocator, xs: []const *AstNode) !*AstNode {
-       const list = try arena.create(AstNode.List);
-        
-       list.* = .{
-            .xs = try arena.dupe(*AstNode, xs),
-       };
-        return &list.base;
-}
-pub fn newAtom(arena: std.mem.Allocator, name: []const u8) !*AstNode {
-        const atom = try arena.create(AstNode.Atom);
-        atom.* = .{
-            .name = name,
-        };
-    return &atom.base;
-}
 
 pub fn _time(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
     if (params.len != 1) {
@@ -907,8 +750,104 @@ pub fn _cond(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
     return genCond(bldr, params);
 }
 
+
+pub fn qqExpandList(bldr: AstBuilder, xs: []*AstNode, last: ?*AstNode, depth: usize) anyerror!*AstNode {
+    if (xs.len == 0) {
+        if (last) |l|{
+           const res = try qqExpand(bldr, l, depth);
+           if (res.@"1") {
+                return error.InvalidContext;
+           } else {
+                return res.@"0";
+           }
+
+        } else {
+            return bldr.newList(&.{bldr.newAtom("quote"), bldr.emptyList(0)});
+        }
+    } else {
+         const rest = try qqExpandList(bldr, xs[1..], last, depth);
+         const r = try qqExpand(bldr, xs[0], depth);
+         if (r.@"1") {
+            return bldr.newList(&.{bldr.newAtom("append"), r.@"0", rest});
+         } else {
+            return bldr.newList(&.{bldr.newAtom("cons"), r.@"0", rest});
+         }
+    }
+}
+
+// cons list and append
+pub fn qqExpand(bldr: AstBuilder, x: *AstNode, depth: usize) anyerror!struct{*AstNode,bool} {
+    switch (x.id) {
+        .atom => { 
+            return .{bldr.newList(&.{bldr.newAtom("quote"), x}), false};
+        },
+        .intNumber,
+        .floatNumber,
+        .string,
+        .bool => return .{x, false},
+        .list => {
+            const xs = x.cast(.list).xs;
+            if (xs.len > 0 and xs[0].id == .atom) {
+                if (std.mem.eql(u8, "quasiquote", xs[0].cast(.atom).name)) {
+                    // std.debug.panic("nested quasiquotes not implemented", .{});
+                    const res = try qqExpand(bldr, xs[1], depth + 1);
+                    if (res.@"1") {
+                        @panic("is this possible?");
+                    }
+                    const z = bldr.newList(&.{bldr.newAtom("quasiquote") , res.@"0"});
+                    return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
+                } else if (std.mem.eql(u8, "unquote", xs[0].cast(.atom).name)) {
+                    if (depth == 0) {
+                        const expr = xs[1];
+                        return .{expr, false};
+                    } else {
+                        const res = try qqExpand(bldr, xs[1], depth - 1);
+                        if (res.@"1") {
+                            @panic("apparently this is possible");
+                        }
+                        const z = bldr.newList(&.{bldr.newAtom("unquote") , res.@"0"});
+                        return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
+                    }
+                } else if (std.mem.eql(u8, "unquote-splicing", xs[0].cast(.atom).name)) {
+                    if (depth == 0) {
+                        const expr = xs[1];
+                        return .{expr, true};
+                    } else {
+                        const res = try qqExpand(bldr, xs[1], depth - 1);
+                        if (res.@"1") {
+                            @panic("is this possible?");
+                        }
+                        const z = bldr.newList(&.{bldr.newAtom("unquote-splicing") , res.@"0"});
+                        return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
+                    }
+                }
+            }
+            return .{try qqExpandList(bldr, xs, null, depth), false};
+        },
+        .improperList => {
+            const xs = x.cast(.improperList).xs;
+            return .{try qqExpandList(bldr, xs, x.cast(.improperList).last, depth), false};
+        },
+        else => {@panic("not implemented");},
+    }
+}
+
+
+pub fn _quasiquote(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
+    if (params.len != 1) {
+        return error.BadSyntax;
+    }
+    // params[0].debugprint("quasiquote: ");
+    const r = try qqExpand(bldr, params[0], 0);
+    // r.@"0".debugprint("quasiquote expansion");
+    return r.@"0";
+}
+
+
 pub const define: Macro = .{.name = "define", .exec = _define };
 pub const cond: Macro = .{.name = "cond", .exec = _cond };
+pub const quasiquote: Macro = .{.name = "quasiquote", .exec = _quasiquote };
+
 pub const @"define-macro": Macro = .{.name = "define-macro", .exec = defineMacro };
 pub const time: Macro = .{.name = "time", .exec = _time };
     // pub fn createInitialEnv(self: *VM) !void {

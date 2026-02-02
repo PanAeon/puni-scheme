@@ -157,13 +157,13 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     }
                     try self.genQuote(xs[1], buffer);
                     return;
-                } else if (std.mem.eql(u8, "quasiquote", name)) {
-                    if (xs.len != 2) {
-                        return error.WrongSyntax;
-                    }
+                // } else if (std.mem.eql(u8, "quasiquote", name)) {
+                    // if (xs.len != 2) {
+                    //     return error.WrongSyntax;
+                    // }
 
-                    try self.genExpr(try self.genQuasiQuote(xs[1]), buffer, lexicalCtx, false);
-                    return;
+                    // try self.genExpr(try self.genQuasiQuote(xs[1]), buffer, lexicalCtx, false);
+                    // return;
                 } else if (std.mem.eql(u8, "lambda", name)) {
                     if (xs.len < 3) {
                         return error.WrongSyntax;
@@ -174,9 +174,10 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
                     try self.genPrim(prim, ast.cast(.list).xs[1..], buffer, lexicalCtx);
                     return;
                 } else if (self.macros.get(name)) |macro| {
-                    // FIXME: do we need to expand xs[1..] first?
-                    for (1..xs.len) |i| {
-                       xs[i] = try self.expandMacros(xs[i]);
+                    if (!std.mem.eql(u8, "quasiquote", name)) {
+                        for (1..xs.len) |i| {
+                           xs[i] = try self.expandMacros(xs[i]);
+                        }
                     }
                     const transformed = try macro.exec(self.astBuilder, xs[1..]);
                     // std.debug.print("builtin macro: {s}\n", .{name});
@@ -247,20 +248,6 @@ pub fn genExpr(self: *Compiler, ast: *AstNode, buffer: *std.ArrayList(Instructio
             // try self.vm.data.append(self.allocator, node);
             // try buffer.append(self.arena, .{ .Const = node } );
 
-        },
-        .quote => {
-            const x = ast.cast(.quote).value;
-            try self.genQuote(x, buffer);
-        },
-        .quasiquote => {
-            const x = ast.cast(.quasiquote).value;
-            try self.genExpr(try self.genQuasiQuote(x), buffer, lexicalCtx, false);
-        },
-        .unquote => {
-            return error.WrongSyntax;
-        },
-        .unquoteSplicing => {
-            return error.WrongSyntax;
         },
     }
 }
@@ -508,38 +495,6 @@ pub fn genQuoteInner(self: *Compiler, x: *AstNode) anyerror!void {
             }
             try bldr.newVector(xs.len, true);
         },
-        .quote => { 
-            try bldr.newList();
-            const expr = x.cast(.quote).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try bldr.newAtom("quote");
-            try bldr.appendToList();
-        },
-        .quasiquote => { 
-            try bldr.newList();
-            const expr = x.cast(.quasiquote).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("quasiquote");
-            try bldr.appendToList();
-        },
-        .unquote => { 
-            try bldr.newList();
-            const expr = x.cast(.unquote).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("unquote");
-            try bldr.appendToList();
-        },
-        .unquoteSplicing => {
-            try bldr.newList();
-            const expr = x.cast(.unquoteSplicing).value;
-            try self.genQuoteInner(expr);
-            try bldr.appendToList();
-            try  bldr.newAtom("unquote-splicing");
-            try bldr.appendToList();
-        },
     }
 }
 
@@ -555,75 +510,6 @@ pub fn genQuote(self: *Compiler, x: *AstNode, buffer: *std.ArrayList(Instruction
 
 
 
-pub fn genQuasiQuoteListTr(self: *Compiler, xs: []*AstNode, last: ?*AstNode) anyerror!*AstNode {
-    const bldr = &self.astBuilder;
-    if (xs.len == 0) {
-        if (last) |l|{
-           const res = try self.genQuasiQuoteInnerTr(l);
-           if (res.@"1") {
-                return error.InvalidContext;
-           } else {
-                return res.@"0";
-           }
-
-        } else {
-            return bldr.newList(&.{bldr.newAtom("quote"), bldr.emptyList(0)});
-        }
-    } else {
-         const rest = try self.genQuasiQuoteListTr(xs[1..], last);
-         const r = try self.genQuasiQuoteInnerTr(xs[0]);
-         if (r.@"1") {
-            return bldr.newList(&.{bldr.newAtom("append"), r.@"0", rest});
-         } else {
-            return bldr.newList(&.{bldr.newAtom("cons"), r.@"0", rest});
-         }
-    }
-}
-// cons list and append
-pub fn genQuasiQuoteInnerTr(self: *Compiler, x: *AstNode) anyerror!struct{*AstNode,bool} {
-    const bldr = &self.astBuilder;
-    switch (x.id) {
-        .atom => { 
-            return .{bldr.newList(&.{bldr.newAtom("quote"), x}), false};
-        },
-        .intNumber,
-        .floatNumber,
-        .string,
-        .bool => return .{x, false},
-        .list => {
-            const xs = x.cast(.list).xs;
-            if (xs.len > 0 and xs[0].id == .atom and std.mem.eql(u8, "quasiquote", xs[0].cast(.atom).name)) {
-                std.debug.print("gotcha?", .{});
-            }
-            return .{try self.genQuasiQuoteListTr(xs, null), false};
-        },
-        .improperList => {
-            const xs = x.cast(.improperList).xs;
-            return .{try self.genQuasiQuoteListTr(xs, x.cast(.improperList).last), false};
-        },
-        .unquote => {
-            const expr = x.cast(.unquote).value;
-            return .{expr, false};
-        },
-        .unquoteSplicing => {
-            const expr = x.cast(.unquoteSplicing).value;
-            return .{expr, true};
-        },
-        else => {@panic("not implemented");},
-    }
-}
-
-
-pub fn genQuasiQuote(self: *Compiler, x: *AstNode) anyerror!*AstNode {
-    const r = try self.genQuasiQuoteInnerTr(x); // wait .. I need to actually compile it?
-    // r.@"0".debugprint("quasiquote expansion");
-    return r.@"0";
-    // const c = try self.vm.stack.pop();
-     
-    // try self.vm.data.append(self.allocator, c);
-    // try buffer.append(self.arena, .{.Const = c });
-}
-
 // pub fn expandMacros(self: *Compiler, ast: *AstNode) anyerror!*AstNode {
 pub fn expandMacros(self: *Compiler, ast: *AstNode) anyerror!*AstNode {
    switch(ast.id) {
@@ -631,15 +517,18 @@ pub fn expandMacros(self: *Compiler, ast: *AstNode) anyerror!*AstNode {
             const xs = ast.cast(.list).xs;
             if (xs.len > 0 and xs[0].id == .atom) {
                 const name = xs[0].cast(.atom).name;
-                if (std.mem.eql(u8, "quasiquote", name)) {
-                    if (xs.len != 2) {
-                        return error.WrongSyntax;
-                    }
+                // if (std.mem.eql(u8, "quasiquote", name)) {
+                //     if (xs.len != 2) {
+                //         return error.WrongSyntax;
+                //     }
+                //
+                //     return try self.genQuasiQuote(xs[1]);
+                if (self.macros.get(name)) |macro| {
 
-                    return try self.genQuasiQuote(xs[1]);
-                } else if (self.macros.get(name)) |macro| {
+                    if (!std.mem.eql(u8, "quasiquote", name)) {
                     for (1..xs.len) |i| {
                        xs[i] = try self.expandMacros(xs[i]);
+                    }
                     }
                     return try macro.exec(self.astBuilder, xs[1..]);
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
@@ -658,17 +547,10 @@ pub fn expandMacros(self: *Compiler, ast: *AstNode) anyerror!*AstNode {
         .floatNumber,
         .bool,
         .atom,
-        .quote,
-        .unquote,
-        .unquoteSplicing,
         .improperList,
         .vector, // TODO: maybe should support expanding macros here?
         .string => {
             return ast;
-        },
-        .quasiquote => {
-            const x = ast.cast(.quasiquote).value;
-            return self.genQuasiQuote(x);
         },
     }
 }

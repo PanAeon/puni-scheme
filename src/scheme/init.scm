@@ -26,35 +26,82 @@
 ;; also clojure and scala have hamt dictionaries
 ;; https://blog.higher-order.net/2009/09/08/understanding-clojures-persistenthashmap-deftwice.html
 
-;; (define (caar x) (car (car x)))
-;; (define (cadr x) (car (cdr x)))
-;; (define (cdar x) (cdr (car x)))
-;; (define (cddr x) (cdr (cdr x)))
+(define (caar x) (car (car x)))
+(define (cadr x) (car (cdr x)))
+(define (cdar x) (cdr (car x)))
+(define (cddr x) (cdr (cdr x)))
 ;;
-;; (define (caaar x) (car (car (car x))))
-;; (define (caadr x) (car (car (cdr x))))
-;; (define (cadar x) (car (cdr (car x))))
-;; (define (caddr x) (car (cdr (cdr x))))
-;; (define (cdaar x) (cdr (car (car x))))
-;; (define (cdadr x) (cdr (car (cdr x))))
-;; (define (cddar x) (cdr (cdr (car x))))
-;; (define (cdddr x) (cdr (cdr (cdr x))))
-;; (define (caaaar x) (car (car (car (car x)))))
-;; (define (caaadr x) (car (car (car (cdr x)))))
-;; (define (caadar x) (car (car (cdr (car x)))))
-;; (define (caaddr x) (car (car (cdr (cdr x)))))
-;; (define (cadaar x) (car (cdr (car (car x)))))
-;; (define (cadadr x) (car (cdr (car (cdr x)))))
-;; (define (caddar x) (car (cdr (cdr (car x)))))
-;; (define (cadddr x) (car (cdr (cdr (cdr x)))))
-;; (define (cdaaar x) (cdr (car (car (car x)))))
-;; (define (cdaadr x) (cdr (car (car (cdr x)))))
-;; (define (cdadar x) (cdr (car (cdr (car x)))))
-;; (define (cdaddr x) (cdr (car (cdr (cdr x)))))
-;; (define (cddaar x) (cdr (cdr (car (car x)))))
-;; (define (cddadr x) (cdr (cdr (car (cdr x)))))
-;; (define (cdddar x) (cdr (cdr (cdr (car x)))))
-;; (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
+(define (caaar x) (car (car (car x))))
+(define (caadr x) (car (car (cdr x))))
+(define (cadar x) (car (cdr (car x))))
+(define (caddr x) (car (cdr (cdr x))))
+(define (cdaar x) (cdr (car (car x))))
+(define (cdadr x) (cdr (car (cdr x))))
+(define (cddar x) (cdr (cdr (car x))))
+(define (cdddr x) (cdr (cdr (cdr x))))
+(define (caaaar x) (car (car (car (car x)))))
+(define (caaadr x) (car (car (car (cdr x)))))
+(define (caadar x) (car (car (cdr (car x)))))
+(define (caaddr x) (car (car (cdr (cdr x)))))
+(define (cadaar x) (car (cdr (car (car x)))))
+(define (cadadr x) (car (cdr (car (cdr x)))))
+(define (caddar x) (car (cdr (cdr (car x)))))
+(define (cadddr x) (car (cdr (cdr (cdr x)))))
+(define (cdaaar x) (cdr (car (car (car x)))))
+(define (cdaadr x) (cdr (car (car (cdr x)))))
+(define (cdadar x) (cdr (car (cdr (car x)))))
+(define (cdaddr x) (cdr (car (cdr (cdr x)))))
+(define (cddaar x) (cdr (cdr (car (car x)))))
+(define (cddadr x) (cdr (cdr (car (cdr x)))))
+(define (cdddar x) (cdr (cdr (cdr (car x)))))
+(define (cddddr x) (cdr (cdr (cdr (cdr x)))))
+
+
+(define (newline) (newline))
+
+(define (call/cc x) (call/cc x))
+(define (read x) (read x))
+
+;; temprorary define only binary functions
+(define (+ a b) (+ a b)) 
+(define (- a b) (- a b)) 
+(define (/ a b) (/ a b)) 
+(define (* a b) (* a b)) 
+(define (= a b) (= a b)) 
+(define (error x) (error x))
+
+(define (zero? x) (zero? x))
+(define (pair? x) (pair? x))
+(define (null? x) (null? x))
+(define (list? x) (list? x))
+(define (positive? x) (positive? x))
+(define (boolean? x) (boolean? x))
+(define (symbol? x) (symbol? x))
+(define (integer? x) (integer? x))
+(define (string? x) (string? x))
+(define (real? x) (real? x))
+(define (not x) (not x))
+
+
+(define (display x) (display x))
+(define (displaynl x) (displaynl x))
+(define (print x) (print x))
+
+(define (car a ) (car a ))
+(define (cdr a ) (cdr a ))
+(define (number->string a ) (number->string a ))
+(define (string->atom a ) (string->atom a ))
+(define (string-append a ) (string-append a ))
+
+
+(define (eq? a b) (eq? a b))
+(define (eqv? a b) (eqv? a b))
+(define (equal? a b) (equal? a b))
+(define (cons a b) (cons a b))
+(define (set-car! a b) (set-car! a b))
+(define (set-cdr! a b) (set-cdr! a b))
+(define (apply a b) (apply a b))
+
 
 
 ;; and how to mark currently executed lambda in GC? (it shoould be in stack!)
@@ -181,6 +228,9 @@
 ;; (define read #f) ;; TODO: actually add read
 ;;
 ;;
+
+
+
 (define-macro (def name . body)
   (if (symbol? name)
     (append (list 'set! name) body)
@@ -835,95 +885,95 @@
 ;;
 ;; ; TODO: make the interpereter work
 ;;
-;; (define interpret #f)
-;;  (let ()
-;;    (begin
-;;    ;; primitive-environment is an environment containing a small
-;;    ;; number of primitive procedures; it can be extended easily
-;;    ;; to include additional primitives.
-;;    (define primitive-environment
-;;      (list (cons 'apply apply)
-;;            (cons 'assq assq)
-;;            (cons 'call/cc call/cc)
-;;            (cons 'car car)
-;;            (cons 'cadr cadr)
-;;            (cons 'caddr caddr)
-;;            (cons 'cadddr cadddr)
-;;            (cons 'cddr cddr)
-;;            (cons 'cdr cdr)
-;;            (cons 'cons cons)
-;;            (cons 'eq? eq?)
-;;            (cons 'list list)
-;;            (cons 'map map)
-;;            (cons 'memv memv)
-;;            (cons 'null? null?)
-;;            (cons 'pair? pair?)
-;;            (cons 'read read)
-;;            (cons 'set-car! set-car!)
-;;            (cons 'set-cdr! set-cdr!)
-;;            (cons 'symbol? symbol?)))
-;;  
-;;    ;; new-env returns a new environment from a formal parameter
-;;    ;; specification, a list of actual parameters, and an outer
-;;    ;; environment.  The symbol? test identifies "improper"
-;;    ;; argument lists.  Environments are association lists,
-;;    ;; associating variables with values.
-;;    (define new-env
-;;      (lambda (formals actuals env)
-;;        (cond
-;;          ((null? formals) env)
-;;          ((symbol? formals) (cons (cons formals actuals) env))
-;;          (else
-;;           (cons (cons (car formals) (car actuals))
-;;                 (new-env (cdr formals) (cdr actuals) env))))))
-;;  
-;;    ;; lookup finds the value of the variable var in the environment
-;;    ;; env, using assq.  Assumes var is bound in env.
-;;    (define lookup
-;;      (lambda (var env)
-;;        (cdr (assq var env))))
-;;  
-;;    ;; assign is similar to lookup but alters the binding of the
-;;    ;; variable var in the environment env by changing the cdr of
-;;    ;; association pair
-;;    (define assign
-;;      (lambda (var val env)
-;;        (set-cdr! (assq var env) val)))
-;;  
-;;    ;; exec evaluates the expression, recognizing all core forms.
-;;    (define exec
-;;      (lambda (exp env)
-;;        (cond
-;;          ((symbol? exp) (lookup exp env))
-;;          ((pair? exp)
-;;           (case (car exp)
-;;             ((quote) (cadr exp))
-;;             ((lambda)
-;;              (lambda vals
-;;                (let ((env (new-env (cadr exp) vals env)))
-;;                  (let loop ((exps (cddr exp)))
-;;                     (if (null? (cdr exps))
-;;                         (exec (car exps) env)
-;;                         (begin
-;;                            (exec (car exps) env)
-;;                            (loop (cdr exps))))))))
-;;             ((if)
-;;              (if (exec (cadr exp) env)
-;;                  (exec (caddr exp) env)
-;;                  (exec (cadddr exp) env)))
-;;             ((set!)
-;;              (assign (cadr exp)
-;;                      (exec (caddr exp) env)
-;;                      env))
-;;             (else
-;;              (apply (exec (car exp) env)
-;;                     (map (lambda (x) (exec x env))
-;;                          (cdr exp))))))
-;;          (else exp))))
-;;  
-;;    ;; interpret starts execution with the primitive environment.
-;;  (set! interpret
-;;      (lambda (exp)
-;;        (exec exp  primitive-environment)))))
-;;
-;;
+(define interpret #f)
+ (let ()
+   (begin
+   ;; primitive-environment is an environment containing a small
+   ;; number of primitive procedures; it can be extended easily
+   ;; to include additional primitives.
+   (define primitive-environment
+     (list (cons 'apply apply)
+           (cons 'assq assq)
+           (cons 'call/cc call/cc)
+           (cons 'car car)
+           (cons 'cadr cadr)
+           (cons 'caddr caddr)
+           (cons 'cadddr cadddr)
+           (cons 'cddr cddr)
+           (cons 'cdr cdr)
+           (cons 'cons cons)
+           (cons 'eq? eq?)
+           (cons 'list list)
+           (cons 'map map)
+           (cons 'memv memv)
+           (cons 'null? null?)
+           (cons 'pair? pair?)
+           (cons 'read read)
+           (cons 'set-car! set-car!)
+           (cons 'set-cdr! set-cdr!)
+           (cons 'symbol? symbol?)))
+ 
+   ;; new-env returns a new environment from a formal parameter
+   ;; specification, a list of actual parameters, and an outer
+   ;; environment.  The symbol? test identifies "improper"
+   ;; argument lists.  Environments are association lists,
+   ;; associating variables with values.
+   (define new-env
+     (lambda (formals actuals env)
+       (cond
+         ((null? formals) env)
+         ((symbol? formals) (cons (cons formals actuals) env))
+         (else
+          (cons (cons (car formals) (car actuals))
+                (new-env (cdr formals) (cdr actuals) env))))))
+ 
+   ;; lookup finds the value of the variable var in the environment
+   ;; env, using assq.  Assumes var is bound in env.
+   (define lookup
+     (lambda (var env)
+       (cdr (assoc var env))))
+ 
+   ;; assign is similar to lookup but alters the binding of the
+   ;; variable var in the environment env by changing the cdr of
+   ;; association pair
+   (define assign
+     (lambda (var val env)
+       (set-cdr! (assoc var env) val)))
+ 
+   ;; exec evaluates the expression, recognizing all core forms.
+   (define exec
+     (lambda (exp env)
+       (cond
+         ((symbol? exp) (lookup exp env))
+         ((pair? exp)
+          (case (car exp)
+            ((quote) (cadr exp))
+            ((lambda)
+             (lambda vals
+               (let ((env (new-env (cadr exp) vals env)))
+                 (let loop ((exps (cddr exp)))
+                    (if (null? (cdr exps))
+                        (exec (car exps) env)
+                        (begin
+                           (exec (car exps) env)
+                           (loop (cdr exps))))))))
+            ((if)
+             (if (exec (cadr exp) env)
+                 (exec (caddr exp) env)
+                 (exec (cadddr exp) env)))
+            ((set!)
+             (assign (cadr exp)
+                     (exec (caddr exp) env)
+                     env))
+            (else
+             (apply (exec (car exp) env)
+                    (map (lambda (x) (exec x env))
+                         (cdr exp))))))
+         (else exp))))
+ 
+   ;; interpret starts execution with the primitive environment.
+ (set! interpret
+     (lambda (exp)
+       (exec exp  primitive-environment)))))
+
+

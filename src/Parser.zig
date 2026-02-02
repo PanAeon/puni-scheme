@@ -13,10 +13,6 @@ pub const AstNode = struct {
         bool,
         list,
         improperList,
-        quote,
-        quasiquote,
-        unquote,
-        unquoteSplicing,
         vector,
 
         pub fn Type(comptime id: Id) type {
@@ -29,10 +25,6 @@ pub const AstNode = struct {
                 .vector => AstNode.Vector,
                 .list => AstNode.List,
                 .improperList => AstNode.ImproperList,
-                .quote => AstNode.Quote,
-                .quasiquote => AstNode.Quasiquote,
-                .unquote => AstNode.Unquote,
-                .unquoteSplicing => AstNode.UnquoteSplicing,
             };
         }
     };
@@ -57,22 +49,6 @@ pub const AstNode = struct {
         base: AstNode = .{ .id = .improperList },
         xs: []*AstNode,
         last: *AstNode,
-    };
-    pub const Quote = struct {
-        base: AstNode = .{ .id = .quote },
-        value: *AstNode,
-    };
-    pub const Quasiquote = struct {
-        base: AstNode = .{ .id = .quasiquote },
-        value: *AstNode,
-    };
-    pub const Unquote = struct {
-        base: AstNode = .{ .id = .unquote },
-        value: *AstNode,
-    };
-    pub const UnquoteSplicing = struct {
-        base: AstNode = .{ .id = .unquoteSplicing },
-        value: *AstNode,
     };
     pub const String = struct {
         base: AstNode = .{ .id = .string },
@@ -164,20 +140,6 @@ pub const AstNode = struct {
                 } else {
                     std.debug.print("#f ", .{});
                 }
-            },
-            .quote => {
-                std.debug.print("'", .{});
-                n.cast(.quote).value.print();
-            },
-            .quasiquote => {
-                std.debug.print("'", .{});
-                n.cast(.quasiquote).value.print();
-            },
-            .unquote => {
-                std.debug.print(",", .{});
-            },
-            .unquoteSplicing => {
-                std.debug.print(",@", .{});
             },
         }
     }
@@ -285,29 +247,49 @@ pub const Parser = struct {
             .quote => {
                 self.token = try self.lexer.nextToken();
                 const expr = try self.parseExpr();
-                var node = try self.arena.create(AstNode.Quote);
-                node.* = .{ .value = expr };
+                var node = try self.arena.create(AstNode.List);
+                var buff = try self.arena.alloc(*AstNode, 2);
+                var atom = try self.arena.create(AstNode.Atom);
+                atom.* = .{ .name = "quote" };
+                buff[0] = &atom.base;
+                buff[1]  = expr;
+                node.* = .{ .xs = buff };
                 return &node.base;
             },
             .quasiquote => {
                 self.token = try self.lexer.nextToken();
                 const expr = try self.parseExpr();
-                var node = try self.arena.create(AstNode.Quasiquote);
-                node.* = .{ .value = expr };
+                var node = try self.arena.create(AstNode.List);
+                var buff = try self.arena.alloc(*AstNode, 2);
+                var atom = try self.arena.create(AstNode.Atom);
+                atom.* = .{ .name = "quasiquote" };
+                buff[0] = &atom.base;
+                buff[1]  = expr;
+                node.* = .{ .xs = buff };
                 return &node.base;
             },
             .unquote => {
                 self.token = try self.lexer.nextToken();
                 const expr = try self.parseExpr();
-                var node = try self.arena.create(AstNode.Unquote);
-                node.* = .{ .value = expr };
+                var node = try self.arena.create(AstNode.List);
+                var buff = try self.arena.alloc(*AstNode, 2);
+                var atom = try self.arena.create(AstNode.Atom);
+                atom.* = .{ .name = "unquote" };
+                buff[0] = &atom.base;
+                buff[1]  = expr;
+                node.* = .{ .xs = buff };
                 return &node.base;
             },
             .unquote_splicing => {
                 self.token = try self.lexer.nextToken();
                 const expr = try self.parseExpr();
-                var node = try self.arena.create(AstNode.UnquoteSplicing);
-                node.* = .{ .value = expr };
+                var node = try self.arena.create(AstNode.List);
+                var buff = try self.arena.alloc(*AstNode, 2);
+                var atom = try self.arena.create(AstNode.Atom);
+                atom.* = .{ .name = "unquote-splicing" };
+                buff[0] = &atom.base;
+                buff[1]  = expr;
+                node.* = .{ .xs = buff };
                 return &node.base;
             },
             .eof => {
