@@ -220,6 +220,30 @@ pub const NodePtr = struct {
                 std.debug.print("{s} ", .{b.name});
             },
             .pair => {
+                if (n.cast(.pair).fst.getId() == .atom) {
+                    const name = n.cast(.pair).fst.cast(.atom).name;
+                    if (std.mem.eql(u8, "quote", name)) {
+                        std.debug.print("'", .{});
+                        const snd = n.second() catch { std.debug.print("<<bare quote>>", .{}); return; };
+                        snd.print();
+                        return;
+                    } else if (std.mem.eql(u8, "quasiquote", name)) {
+                        std.debug.print("`", .{});
+                        const snd = n.second() catch @panic("something went wrong");
+                        snd.print();
+                        return;
+                    } else if (std.mem.eql(u8, "unquote", name)) {
+                        std.debug.print(",", .{});
+                        const snd = n.second() catch @panic("something went wrong");
+                        snd.print();
+                        return;
+                    } else if (std.mem.eql(u8, "unquote-splicing", name)) {
+                        std.debug.print(",@", .{});
+                        const snd = n.second() catch @panic("something went wrong");
+                        snd.print();
+                        return;
+                    }
+                }
                 const p = n.cast(.pair);
                 std.debug.print("(", .{});
                 print(&p.fst);
@@ -309,6 +333,24 @@ pub const NodePtr = struct {
             return error.IllegalArgument;
         }
         return self.cast(.pair).fst;
+    }
+    pub fn tryTail(self: *const NodePtr) anyerror!NodePtr {
+        if (self.getId() != .pair) {
+            return error.IllegalArgument;
+        }
+        return self.cast(.pair).snd;
+    }
+    pub fn second(self: *const NodePtr) anyerror!NodePtr {
+        return (try self.tryTail()).tryHead();
+    }
+    pub fn third(self: *const NodePtr) anyerror!NodePtr {
+        return (try (try self.tryTail()).tryTail()).tryHead();
+    }
+    pub fn fourth(self: *const NodePtr) anyerror!NodePtr {
+        return (try (try (try self.tryTail()).tryTail()).tryTail()).tryHead();
+    }
+    pub fn ttail(self: *const NodePtr) anyerror!NodePtr {
+        return (try self.tryTail()).tryTail();
     }
     pub fn tail(self: *const NodePtr) NodePtr {
         if (self.getId() != .pair) {

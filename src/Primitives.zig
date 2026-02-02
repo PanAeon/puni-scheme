@@ -1,19 +1,17 @@
 const std = @import("std");
 const VM = @import("main.zig").VM;
-const AstNode = @import("Parser.zig").AstNode;
 const _void = @import("Node.zig")._void;
 const _true = @import("Node.zig")._true;
 const _false = @import("Node.zig")._false;
 const NodePtr = @import("Node.zig").NodePtr;
 const Node = @import("Node.zig").Node;
-const AstBuilder = @import("Parser.zig").Builder;
 const getEnv = @import("Env.zig").getEnv;
 
 
 const Primitives = @This();
 
 pub const Macro = struct {
-    exec: *const fn (AstBuilder, []*AstNode) anyerror!*AstNode,
+    exec: *const fn (*VM, NodePtr) anyerror!NodePtr,
     name: []const u8,
 };
 
@@ -630,92 +628,108 @@ pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1
 // ------------------------------ macros --------------------------------------
 
 
-pub fn _time(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    if (params.len != 1) {
-        return error.ArityMismatch;
-    }
-    return bldr.newList(&.{
-        bldr.newAtom("begin"),
-          bldr.newList(&.{bldr.newAtom("timeStart")}),
-          bldr.newList(&.{bldr.newAtom("timeStop"), params[0]}),
-      });
+pub fn _time(vm: *VM, params: NodePtr) anyerror!NodePtr {
+    // if (params.len != 1) {
+    //     return error.ArityMismatch;
+    // }
+    try vm.bldr.newList();
+        try vm.bldr.newList();
+        try vm.stack.push(try params.tryHead());
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("timeStop");
+        try vm.bldr.appendToList();
+    try vm.bldr.appendToList();
+        try vm.bldr.newList();
+        try vm.bldr.newAtom("timeStart");
+        try vm.bldr.appendToList();
+    try vm.bldr.appendToList();
+    try vm.bldr.newAtom("begin");
+    try vm.bldr.appendToList();
+    const res =  try vm.stack.pop();
+    try vm.protectCompile.push(res);
+    return res;
 }
-pub fn defineMacro(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    // TODO: check that it is run only in toplevel
-    if (params.len < 2) {
-        return error.ArityMismatch;
-    }
 
-    if (params[0].id == .list) {
-        const args = params[0].cast(.list).xs;
-        const name = args[0];
-        const lambdaParams = bldr.newList(args[1..]);
-        var lambda = bldr.emptyList(params.len + 1);
-        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
-        lambda.cast(.list).xs[1] = lambdaParams;
-        for (1..params.len) |i| {
-            lambda.cast(.list).xs[i+1] = params[i];
-        }
+pub fn defineMacro(vm: *VM, params: NodePtr) anyerror!NodePtr {
+    // if (params.len < 2) {
+    //     return error.ArityMismatch;
+    // }
 
-        return bldr.newList(&.{bldr.newAtom("set-macro!"), name, lambda});
+    const pair = try params.tryCast(.pair);
 
-    } else if (params[0].id == .improperList) {
-        const l = params[0].cast(.improperList);
-        const args = l.xs;
-        const name = args[0];
-        const lambdaParams = bldr.newImproperList(args[1..], l.last);
-        var lambda = bldr.emptyList(params.len + 1);
-        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
-        lambda.cast(.list).xs[1] = lambdaParams;
-        for (1..params.len) |i| {
-            lambda.cast(.list).xs[i+1] = params[i];
-        }
+    if (pair.fst.getId() == .pair) {
+        var args = pair.fst;
+        const name = (try args.tryCast(.pair)).fst;
+        const lambdaParams = (try args.tryCast(.pair)).snd;
 
-        return bldr.newList(&.{bldr.newAtom("set-macro!"), name, lambda});
+        try vm.bldr.newList();
+            try vm.stack.push(pair.snd);
+            try vm.stack.push(lambdaParams);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("lambda");
+            try vm.bldr.appendToList();
+        try vm.bldr.appendToList();
+
+        try vm.stack.push(name);
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("set-macro!");
+        try vm.bldr.appendToList();
+
+        const res = try vm.stack.pop();
+        // res.debugprint("result::: ");
+        try vm.protectCompile.push(res);
+        return res;
+
     } else {
-        std.debug.print("can't define not atom, got: {}\n", .{params[0].id});
+        std.debug.print("can't define not atom, got: {}\n", .{pair.fst.getId()});
         return error.IllegalArgument;
     }
 }
-pub fn _define(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    if (params.len < 2) {
-        return error.ArityMismatch;
-    }
+pub fn _define(vm: *VM, params: NodePtr) anyerror!NodePtr {
+    // if (params.len < 2) {
+    //     return error.ArityMismatch;
+    // }
 
-    if (params[0].id == .atom) {
-        if (params.len != 2) {
-            return error.ArityMismatch;
-        }
+    const pair = try params.tryCast(.pair);
+    if (pair.fst.getId() == .atom) {
+        // if (params.len != 2) {
+        //     return error.ArityMismatch;
+        // }
+        try vm.bldr.newList();
+        try vm.stack.push(try params.second());
+        try vm.bldr.appendToList();
+        try vm.stack.push(try params.tryHead());
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("set!");
+        try vm.bldr.appendToList();
+        const res = try vm.stack.pop();
+        try vm.protectCompile.push(res);
+        return res;
 
-        return bldr.newList(&.{bldr.newAtom("set!"), params[0], params[1]});
-    } else if (params[0].id == .list) {
-        const args = params[0].cast(.list).xs;
-        const name = args[0];
-        const lambdaParams = bldr.newList(args[1..]);
-        var lambda = bldr.emptyList(params.len + 1);
-        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
-        lambda.cast(.list).xs[1] = lambdaParams;
-        for (1..params.len) |i| {
-            lambda.cast(.list).xs[i+1] = params[i];
-        }
+    } else if (pair.fst.getId() == .pair) {
+        var args = pair.fst;
+        const name = (try args.tryCast(.pair)).fst;
+        const lambdaParams = (try args.tryCast(.pair)).snd;
 
-        return bldr.newList(&.{bldr.newAtom("set!"), name, lambda});
+        try vm.bldr.newList();
+            try vm.stack.push(pair.snd);
+            try vm.stack.push(lambdaParams);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("lambda");
+            try vm.bldr.appendToList();
+        try vm.bldr.appendToList();
 
-    } else if (params[0].id == .improperList) {
-        const l = params[0].cast(.improperList);
-        const args = l.xs;
-        const name = args[0];
-        const lambdaParams = bldr.newImproperList(args[1..], l.last);
-        var lambda = bldr.emptyList(params.len + 1);
-        lambda.cast(.list).xs[0] = bldr.newAtom("lambda");
-        lambda.cast(.list).xs[1] = lambdaParams;
-        for (1..params.len) |i| {
-            lambda.cast(.list).xs[i+1] = params[i];
-        }
+        try vm.stack.push(name);
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("set!");
+        try vm.bldr.appendToList();
 
-        return bldr.newList(&.{bldr.newAtom("set!"), name, lambda});
+        const res = try vm.stack.pop();
+        try vm.protectCompile.push(res);
+        return res;
+
     } else {
-        std.debug.print("can't define not atom, got: {}\n", .{params[0].id});
+        std.debug.print("can't define not atom, got: {}\n", .{pair.fst.getId()});
         return error.IllegalArgument;
     }
 
@@ -723,124 +737,166 @@ pub fn _define(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
 }
 
 
-pub fn genCond(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    if (params.len == 0) {
-        return bldr.newList(&.{bldr.newAtom("begin")});
+pub fn genCond(vm: *VM, params: NodePtr) anyerror!void {
+    if (params.getId() == .nil) {
+        try vm.bldr.newList();
+        try vm.bldr.newAtom("begin");
+        try vm.bldr.appendToList();
+        return;
     }
-    if (params[0].id != .list) {
+    if ((try params.tryCast(.pair)).fst.getId() != .pair) {
         return error.BadSyntax;
     }
-    const clause = params[0].cast(.list).xs;
-    if (clause[0].id == .atom and std.mem.eql(u8, "else", clause[0].cast(.atom).name)) {
-        if (clause.len == 2) {
-            return clause[1];
-        } else {
-            @panic("not implemented");
-        }
+    const clause = (try params.tryHead());
+    const condition = try clause.tryHead();
+    if (condition.getId() == .atom and std.mem.eql(u8, "else", condition.cast(.atom).name)) {
+        try vm.stack.push(try clause.second()); // or snd? TODO: need to append begin?
+        return;
     }
-    if (clause.len != 2) {
-            @panic("not implemented");
-    }
-    return bldr.newList(&.{bldr.newAtom("if"), clause[0], clause[1], try genCond(bldr, params[1..])});
+    try vm.bldr.newList();
+    try genCond(vm, params.tail());
+    try vm.bldr.appendToList();
+    try vm.stack.push(try clause.second());
+    try vm.bldr.appendToList();
+    try vm.stack.push(condition);
+    try vm.bldr.appendToList();
+    try vm.bldr.newAtom("if");
+    try vm.bldr.appendToList();
 }
-pub fn _cond(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    // if (params.len == 0) {
-    //     return bldr.newList(&.{bldr.newAtom("begin")});
-    // }
-    return genCond(bldr, params);
+pub fn _cond(vm: *VM, params: NodePtr) anyerror!NodePtr {
+    try genCond(vm, params);
+
+    const res = try vm.stack.pop();
+    // res.debugprint("result:");
+    try vm.protectCompile.push(res);
+    return res;
 }
 
 
-pub fn qqExpandList(bldr: AstBuilder, xs: []*AstNode, last: ?*AstNode, depth: usize) anyerror!*AstNode {
-    if (xs.len == 0) {
-        if (last) |l|{
-           const res = try qqExpand(bldr, l, depth);
-           if (res.@"1") {
-                return error.InvalidContext;
+pub fn qqExpandList(vm: *VM, xs: NodePtr,  depth: usize) anyerror!void {
+    if (xs.getId() == .nil) {
+        try vm.bldr.newList();
+        try vm.bldr.newList();
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("quote");
+        try vm.bldr.appendToList();
+    } else if (xs.getId() != .pair) {
+           const res = try qqExpand(vm, xs, depth);
+           if (res) {
+                return error.InvalidContext; // TODO: maybe not actually ivalid .. 
            } else {
-                return res.@"0";
+               return;
            }
-
-        } else {
-            return bldr.newList(&.{bldr.newAtom("quote"), bldr.emptyList(0)});
-        }
     } else {
-         const rest = try qqExpandList(bldr, xs[1..], last, depth);
-         const r = try qqExpand(bldr, xs[0], depth);
-         if (r.@"1") {
-            return bldr.newList(&.{bldr.newAtom("append"), r.@"0", rest});
+         const r = try qqExpand(vm, xs.head(), depth);
+         try qqExpandList(vm, xs.tail(), depth);
+         if (r) {
+            try vm.bldr.newList();
+            try vm.bldr.appendToListRev(); // rest
+            try vm.bldr.appendToListRev(); // r
+            try vm.bldr.newAtom("append");
+            try vm.bldr.appendToList();
          } else {
-            return bldr.newList(&.{bldr.newAtom("cons"), r.@"0", rest});
+            try vm.bldr.newList();
+            try vm.bldr.appendToListRev(); // rest
+            try vm.bldr.appendToListRev(); // r
+            try vm.bldr.newAtom("cons");
+            try vm.bldr.appendToList();
          }
     }
 }
 
 // cons list and append
-pub fn qqExpand(bldr: AstBuilder, x: *AstNode, depth: usize) anyerror!struct{*AstNode,bool} {
-    switch (x.id) {
+pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!bool {
+    switch (x.getId()) {
         .atom => { 
-            return .{bldr.newList(&.{bldr.newAtom("quote"), x}), false};
+            try vm.bldr.newList();
+            try vm.stack.push(x);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("quote");
+            try vm.bldr.appendToList();
+            return false;
         },
         .intNumber,
         .floatNumber,
         .string,
-        .bool => return .{x, false},
-        .list => {
-            const xs = x.cast(.list).xs;
-            if (xs.len > 0 and xs[0].id == .atom) {
-                if (std.mem.eql(u8, "quasiquote", xs[0].cast(.atom).name)) {
+        .bool => {
+            try vm.stack.push(x);
+            return false; 
+        },
+        .nil => {
+            try vm.stack.push(x);
+            return false; 
+        },
+        .pair => {
+            const head = x.cast(.pair).fst;
+            if (head.getId() == .atom) {
+                if (std.mem.eql(u8, "quasiquote", head.cast(.atom).name)) {
                     // std.debug.panic("nested quasiquotes not implemented", .{});
-                    const res = try qqExpand(bldr, xs[1], depth + 1);
-                    if (res.@"1") {
+                    const res = try qqExpand(vm, x.tail(), depth + 1);
+                    if (res) {
                         @panic("is this possible?");
                     }
-                    const z = bldr.newList(&.{bldr.newAtom("quasiquote") , res.@"0"});
-                    return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
-                } else if (std.mem.eql(u8, "unquote", xs[0].cast(.atom).name)) {
+                    try vm.bldr.newList();
+                    try vm.bldr.appendToListRev();
+                        try vm.bldr.newList();
+                        try vm.bldr.newAtom("quasiquote");
+                        try vm.bldr.appendToList();
+                        try vm.bldr.newAtom("quote");
+                        try vm.bldr.appendToList();
+                    try vm.bldr.appendToList();
+
+                    return false;
+                } else if (std.mem.eql(u8, "unquote", head.cast(.atom).name)) {
                     if (depth == 0) {
-                        const expr = xs[1];
-                        return .{expr, false};
+                        try vm.stack.push(try x.second());
+                        return false;
                     } else {
-                        const res = try qqExpand(bldr, xs[1], depth - 1);
-                        if (res.@"1") {
-                            @panic("apparently this is possible");
-                        }
-                        const z = bldr.newList(&.{bldr.newAtom("unquote") , res.@"0"});
-                        return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
+                        @panic("not implemented");
+                        // const res = try qqExpand(vm, xs[1], depth - 1);
+                        // if (res.@"1") {
+                        //     @panic("apparently this is possible");
+                        // }
+                        // const z = vm.newList(&.{vm.newAtom("unquote") , res.@"0"});
+                        // return .{ vm.newList(&.{vm.newAtom("quote"), z}), false };
                     }
-                } else if (std.mem.eql(u8, "unquote-splicing", xs[0].cast(.atom).name)) {
+                } else if (std.mem.eql(u8, "unquote-splicing", head.cast(.atom).name)) {
                     if (depth == 0) {
-                        const expr = xs[1];
-                        return .{expr, true};
+                        try vm.stack.push(try x.second());
+                        return true;
                     } else {
-                        const res = try qqExpand(bldr, xs[1], depth - 1);
-                        if (res.@"1") {
-                            @panic("is this possible?");
-                        }
-                        const z = bldr.newList(&.{bldr.newAtom("unquote-splicing") , res.@"0"});
-                        return .{ bldr.newList(&.{bldr.newAtom("quote"), z}), false };
+                        @panic("not implemented");
+                        // const res = try qqExpand(vm, xs[1], depth - 1);
+                        // if (res.@"1") {
+                        //     @panic("is this possible?");
+                        // }
+                        // const z = vm.newList(&.{vm.newAtom("unquote-splicing") , res.@"0"});
+                        // return .{ vm.newList(&.{vm.newAtom("quote"), z}), false };
                     }
                 }
             }
-            return .{try qqExpandList(bldr, xs, null, depth), false};
+            try qqExpandList(vm, x, depth);
+            return false;
         },
-        .improperList => {
-            const xs = x.cast(.improperList).xs;
-            return .{try qqExpandList(bldr, xs, x.cast(.improperList).last, depth), false};
+        else => { 
+            @panic("not implemented");
         },
-        else => {@panic("not implemented");},
     }
 }
 
 
-pub fn _quasiquote(bldr: AstBuilder, params: []*AstNode) anyerror!*AstNode {
-    if (params.len != 1) {
+pub fn _quasiquote(vm: *VM, params: NodePtr) anyerror!NodePtr {
+    if (params.len() != 1) {
         return error.BadSyntax;
     }
     // params[0].debugprint("quasiquote: ");
-    const r = try qqExpand(bldr, params[0], 0);
+    _ = try qqExpand(vm, params.head(), 0);
     // r.@"0".debugprint("quasiquote expansion");
-    return r.@"0";
+
+    const res = try vm.stack.pop();
+    res.debugprint("result:");
+    try vm.protectCompile.push(res);
+    return res;
 }
 
 
@@ -850,19 +906,3 @@ pub const quasiquote: Macro = .{.name = "quasiquote", .exec = _quasiquote };
 
 pub const @"define-macro": Macro = .{.name = "define-macro", .exec = defineMacro };
 pub const time: Macro = .{.name = "time", .exec = _time };
-    // pub fn createInitialEnv(self: *VM) !void {
-    //     _ = &self;
-    // //     const xs = [_]struct { []const u8, *const fn (*VM) anyerror!void }{
-    //         // .{ "apply", apply },
-    //         // .{ "eval", __eval },
-    //     // };
-    //     // const dontEval = [_]struct { []const u8, *const fn (*VM) anyerror!void }{
-    //         // .{ "and", __and },
-    //         // .{ "or", __or },
-    //         // .{ "cond", __cond },
-    //         //
-    //         // .{ "case", __case },
-    //         // .{ "set!", @"set!" },
-    //         // .{ "put!", @"put!" },
-    //         // .{ "define-macro", @"define-macro" },
-    //     // };

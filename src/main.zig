@@ -115,6 +115,7 @@ pub const VM = struct {
     maxObjects: usize = InitialGCThreshold,
     stack: Stack(NodePtr) = undefined,
     protectStack: Stack(NodePtr) = undefined,
+    protectCompile: Stack(NodePtr) = undefined,
     argsBuffer: [1024]NodePtr = undefined, // TODO: remove it..
     disableGC: bool = false,
     verboseGC: bool = true,
@@ -136,6 +137,7 @@ pub const VM = struct {
             .allocator = allocator,
             .stack = try Stack(NodePtr).init(allocator, MaxStack),
             .protectStack = try Stack(NodePtr).init(allocator, MaxProtectStack),
+            .protectCompile = try Stack(NodePtr).init(allocator, MaxProtectStack),
             .code = try std.ArrayList(Instruction).initCapacity(allocator, 16 * 1024),
             .data = try std.ArrayList(NodePtr).initCapacity(allocator, 16 * 1024),
             .globalEnv = std.StringHashMap(NodePtr).init(allocator),
@@ -150,6 +152,7 @@ pub const VM = struct {
     }
     pub fn destroy(self: *VM) void {
         self.protectStack.clear();
+        self.protectCompile.clear();
         self.stack.clear();
         self.data.shrinkRetainingCapacity(0);
         self.globalEnv.clearRetainingCapacity();
@@ -164,6 +167,7 @@ pub const VM = struct {
         self.symbolMap.deinit();
         self.macroMap.deinit();
         self.protectStack.deinit(self.allocator);
+        self.protectCompile.deinit(self.allocator);
         self.consAlloctor.destroy();
         self.allocator.destroy(self);
     }
@@ -183,6 +187,9 @@ pub const VM = struct {
         }
         for (0..self.protectStack.size) |i| {
             mark(self.protectStack.items[i]);
+        }
+        for (0..self.protectCompile.size) |i| {
+            mark(self.protectCompile.items[i]);
         }
         for (self.data.items) |d| {
             mark(d);
@@ -507,7 +514,7 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
         linenoise.linenoiseFree(line);
 
         try lineBuffer.append(gpa, 0);
-        const nodes = parser.parse(lineBuffer.items[0 .. lineBuffer.items.len - 1 :0], arena.allocator()) catch |e| {
+        parser.parse(lineBuffer.items[0 .. lineBuffer.items.len - 1 :0], arena.allocator()) catch |e| {
             switch (e) {
                 ParserError.UnmatchedParen, lex.LexerError.UnclosedString => {
                     _ = lineBuffer.pop();
@@ -527,35 +534,31 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
             prompt = "==> ";
             continue :repl;
         };
-        for (nodes) |node| {
-        const start = compiler.compile(node) catch |e| {
-            lineBuffer.clearRetainingCapacity();
-            try stdout.print("compile error: {any}\n", .{e});
-            try stdout.flush();
-            continue :repl;
-        };
+        while (vm.stack.size > 0) {
+            const start = compiler.compile() catch |e| {
+                lineBuffer.clearRetainingCapacity();
+                vm.stack.clear();
+                prompt = "==> ";
+                try stdout.print("compile error: {any}\n", .{e});
+                try stdout.flush();
+                continue :repl;
+            };
 
-    // for (vm.code.items, 0..) |*instr, i| {
-    //     std.debug.print("{d}:\t ", .{i});
-    //     instr.print();
-    // }
-        vm.env = _nil;
-        vm.ip = start;
-        vm.run() catch |e| {
-            try stdout.print("error: {any}\n", .{e});
-            try stdout.flush();
-        };
-       
-        const st = if (vm.stack.size < 8) 0 else vm.stack.size - 8;
-        if (vm.stack.size >= 8) {
-            std.debug.print("...\n", .{});
-        }
-        for (st..vm.stack.size) |i| {
-            const item = vm.stack.items[i];
+            vm.env = _nil;
+            vm.ip = start;
+            vm.run() catch |e| {
+                lineBuffer.clearRetainingCapacity();
+                vm.stack.clear();
+                prompt = "==> ";
+                try stdout.print("error: {any}\n", .{e});
+                try stdout.flush();
+                continue :repl;
+            };
+           
+            const item = try vm.stack.pop();
             if (item.getId() != .void) {
                 item.debugprint("");
             }
-        }
         }
         lineBuffer.clearRetainingCapacity();
         // vm.printReturnStack();
@@ -585,7 +588,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     var vm = try VM.init(allocator, true);
     defer vm.destroy();
-    var parser = Parser.init();
+    var parser = Parser.init(vm);
     // vm.disableGC = true;
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -594,24 +597,25 @@ pub fn main() !void {
         var buffer: [128*1024]u8 = undefined;
         const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
         buffer[len] = 0;
-        const nodes = try parser.parse(buffer[0..len :0], arena.allocator());
+        try parser.parse(buffer[0..len :0], arena.allocator());
 
         var compiler = Compiler.init(arena.allocator(), allocator, vm);
         defer compiler.deinit();
 
         compiler.getPrims();
 
-        for (nodes) |node| {
-           const start = try compiler.compile(node);
+        if (vm.stack.size > 0) {
+            try vm.stack.reverseInPlace(vm.stack.size);
+        }
+
+        while (vm.stack.size > 0)  {
+           const start = try compiler.compile();
            vm.ip = start;
            try vm.run();
-            for (0..vm.stack.size) |i| {
-                const item = vm.stack.items[i];
+                const item = try vm.stack.pop();
                 if (item.getId() != .void) {
                     item.debugprint("");
                 }
-            }
-          vm.stack.clear();
         }
 
         // for (vm.code.items, 0..) |*instr, i| {
