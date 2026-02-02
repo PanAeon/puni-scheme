@@ -181,7 +181,6 @@
 ;; (define read #f) ;; TODO: actually add read
 ;;
 ;;
-;; ;;; yeah, simpler to add special form..
 (define-macro (def name . body)
   (if (symbol? name)
     (append (list 'set! name) body)
@@ -198,49 +197,11 @@
 ;;     (set-car! expr '+))
 ;;   expr)
 ;;
-;; ;; TODO: macroexpand?
 ;;
-;; ;; (define-macro (quasiquote xs)
-;; ;;     (define (iter x)
-;; ;;         (cond 
-;; ;;             [(and (pair? x) (equal? 'unquote (head x))) (list (eval (head (tail x))))]
-;; ;;             [(and (pair? x) (equal? 'unquote-splicing (head x))) (eval (head (tail x)))]
-;; ;;             [(pair? x) (append (iter (head x)) (iter (tail x)))]
-;; ;;             [(nil? x) '()]
-;; ;;             [else (list x)]))
-;; ;;     (list 'quote (iter xs)))
 ;; (define (id x) x)
 ;; ;; almost working version
-;; ;; (define-macro (quasiquote xs)
-;; ;;     (define (qq-expand x)
-;; ;;       (cond 
-;; ;;             [(and (pair? x) (equal? 'unquote (head x)))  (list (eval (head (tail x))))]
-;; ;;             [(and (pair? x) (equal? 'unquote-splicing (head x))) (eval (head (tail x)))]
-;; ;;             [else (list (qq-iter x))]))
-;; ;;     (define (qq-iter x)
-;; ;;         (cond 
-;; ;;             [(and (pair? x) (equal? 'unquote (head x)))  ( eval (head (tail x)))]
-;; ;;             [(and (pair? x) (equal? 'unquote-splicing (head x))) (error "invalid context within quasiquote")]
-;; ;;             [(pair? x) (flatten (map qq-expand x))]
-;; ;;             [else x]))
-;; ;;     (list 'quote  (qq-iter xs)))
 ;; ;;
 ;;
-;; ;; and it's broken...
-;; (define-macro (quasiquote xs)
-;;     (define env (callerEnv))
-;;     (define (qq-expand x)
-;;       (cond 
-;;             [(and (pair? x) (equal? 'unquote (head x)))  (list (eval1 (head (tail x)) env))]
-;;             [(and (pair? x) (equal? 'unquote-splicing (head x))) (eval1 (head (tail x)) env)]
-;;             [else (list (qq-iter x))]))
-;;     (define (qq-iter x)
-;;         (cond 
-;;             [(and (pair? x) (equal? 'unquote (head x)))  ( eval1 (head (tail x)) env)]
-;;             [(and (pair? x) (equal? 'unquote-splicing (head x))) (error "invalid context within quasiquote")]
-;;             [(pair? x) (flatten (map qq-expand x))]
-;;             [else x]))
-;;     (list 'quote  (qq-iter xs)))
 ;;
 ;; ;;     (let ([id val-expr] ...) body ...+)
 ;; ;; (let proc-id ([id init-expr] ...) body ...+)
@@ -251,7 +212,60 @@
         (,bindings ,@(map second (head body))))
       `((lambda ,(map first bindings) ,@body)
         ,@(map second bindings)) ))
+
+;; like let but evaluates val-exprs one-by-one
+(define-macro (let* bindings . body)
+        (if (null? bindings)
+              `(begin ,@body)
+              `(let (,(head bindings))
+                    (let* ,(tail bindings) ,@body))))
+;; example:
+;; (let* ([x 1]
+;;          [y (+ x 1)])
+;;     (list y x))
+
+;; (define-macro (letrec bindings . body)
+;;     `(let ,(map (lambda (v) (list (head v) '()))  bindings)
+;;        ,@(map (lambda (v) '(set! ,@v)) bindings)
+;;          ,@body))
+
+;; ;; (def-scheme-macro letrec (bindings &rest body)
+;; ;;  '(let ,(mapcar #'(lambda (v) (list (first v) nil)) bindings)
+;; ;;     ,@(mapcar #'(lambda (v) '(set! . ,v)) bindings)
+;; ;;    .,body))
+
+;; example usage:
+ ;; (letrec ([is-even? (lambda (n)
+ ;;                       (or (zero? n)
+ ;;                           (is-odd? (sub1 n))))]
+ ;;           [is-odd? (lambda (n)
+ ;;                      (and (not (zero? n))
+ ;;                           (is-even? (sub1 n))))])
+ ;;    (is-odd? 11))
+
+;; (define-macro (gen-fun pr)
+;;         `set! ,pr (lambda xs `(,pr ,@xs)))
+;; (define (+ . xs)  `(+ ,@xs))
+
+(define-macro (and . xs) 
+    (cond [(null? xs) #t]
+          [(null? (tail xs)) (head xs)]
+          [else `(if ,(head xs) (and ,@(tail xs)) #f)]))
+
+;; bugs... quasiquote inside of a quasiquote?
+(define-macro (or . xs) 
+    (let ((x (gensym)))
+        (cond [(null? xs) #f]
+              [(null? (tail xs)) (head xs)]
+              [else 
+                `(let ((,x ,(head xs))) (if ,x ,x (or ,@(tail xs))) )])))
 ;;
+
+(define-macro (case x . xs) 
+    (if (null? xs) `(begin)
+      (if (equal? 'else (head (head xs))) `(begin ,@(tail (head xs)))
+        (let ((y (gensym)))
+        `((lambda (,y) (if (member ,y (quote ,(head (head xs)))) (begin ,@(tail (head xs))) (case ,x ,@(tail xs))) ) ,x)))))
 
 ;; (define (tq a b) `(1 2 ,a ,b))
 ;; (define-macro (let bindings . body)
@@ -264,16 +278,6 @@
 ;;       ;;   ,@(map second bindings)) )
 ;; ;; TODO: let*, letrec
 ;;
-;; ;; (def-scheme-macro let* (bindings &rest body)
-;; ;;   (if (null bindings)
-;; ;;               '(begin .,body)
-;; ;;               '(let (,(first bindings))
-;; ;;          (let* ,(rest bindings) . ,body))))
-;;
-;; ;; (def-scheme-macro letrec (bindings &rest body)
-;; ;;  '(let ,(mapcar #'(lambda (v) (list (first v) nil)) bindings)
-;; ;;     ,@(mapcar #'(lambda (v) '(set! . ,v)) bindings)
-;; ;;    .,body))
 ;;
 ;; ;; (expand-macro '(let ((r 1)) r))
 ;; ;; (let x ((a 1)) a)
@@ -287,9 +291,6 @@
 (define gensym-id 0)
 
 
-;; the trouble is with define? (it's not evaluating second arg in comptime?)
-
-(define fooz (let ((r 1)) r))
 (define (gensym) 
   (let ((i gensym-id))
     (begin 
@@ -297,7 +298,6 @@
       (string->atom (string-append "gensym-" (number->string i))))))
 ;; ;; ;;; --------------------------------------------------
 ;; ;;
-;; ;; ;;     (match case-expr (pattern body-expr) ...)
 ;; ;; ;;
 ;; ;; ;;  
 ;; ;; ;; pattern	 	=	 	name
@@ -400,7 +400,7 @@
 ;;   (let ((res (matches-internal? expr pattern '())))
 ;;     (if (head res) (list #t (second res) body-expr) (list #f .()) ))))
 ;;   
-;; ;;; hmmm, use displaynl luke
+;; ;; ;;; hmmm, use displaynl luke
 ;; (define-macro (match case-expr . patterns) 
 ;;     (define _res (gensym))
 ;;     (define (gen-match-rec expr patterns)
@@ -426,7 +426,6 @@
 ;;       [(cons fst rst) (last-item rst)]))
 ;; ;;; --------------------------------------------------
 ;; ;; 
-;; ;; FIXME: quasiquote
 ;;
 ;; (define (expand-macro expr)
 ;;     (define hasExpanded #f)
@@ -643,18 +642,20 @@
 ;; ;;       `(cons (cons ,(car body) ,(cadr body)) (alist ,@(cddr body)))))
 ;;
 ;; ;; (alist "foo" 10 "bar" 20 "baz" 30)
+
+;; right, displays #t because
+;; (define-macro (when expr . body)
+;;   `(let ((tmp ,expr))
+;;      (if tmp
+;;          (begin
+;;            ,@body)
+;;          )))
 ;;
-;; ;; (define-macro (when expr body)
-;; ;;   `(let ((tmp ,expr))
-;; ;;      (if tmp
-;; ;;          (begin
-;; ;;            ,@body)
-;; ;;          (begin))))
-;; ;;
-;; ;; (let ((tmp 1000))
-;; ;;   (when (= tmp 1000)
-;; ;;     (display tmp)
-;; ;;     (newline)))
+;; (let ((tmp 1000))
+;;   (when (= tmp 1000)
+;;     (display tmp)
+;;     (newline)))
+
 ;; ;; (define-macro (when test . body)
 ;; ;;   `(if ,test 
 ;; ;;        (begin
@@ -729,16 +730,16 @@
 ;;             (cons (car f) (make-list (- n 1) (car f)))
 ;;          )))
 ;;
-;; ;; (define (remove-dups l)
-;; ;;   (cond
-;; ;;     [(empty? l) empty]
-;; ;;     [(empty? (rest l)) l]
-;; ;;     [else
-;; ;;      (let ([i (first l)])
-;; ;;        (if (equal? i (first (rest l)))
-;; ;;            (remove-dups (rest l))
-;; ;;            (cons i (remove-dups (rest l)))))]))
-;; ;; (remove-dups (list "a" "b" "b" "b" "c" "c"))
+;; (define (remove-dups l)
+;;   (cond
+;;     [(empty? l) empty]
+;;     [(empty? (rest l)) l]
+;;     [else
+;;      (let ([i (first l)])
+;;        (if (equal? i (first (rest l)))
+;;            (remove-dups (rest l))
+;;            (cons i (remove-dups (rest l)))))]))
+;; (remove-dups (list "a" "b" "b" "b" "c" "c"))
 ;;
 ;;
 ;;      ; (define retry #f)
@@ -831,99 +832,98 @@
 ;; ;    )
 ;; ;  (mysumm 0)
 ;;
-;; ; FIXME: let begin ...
 ;;
 ;; ; TODO: make the interpereter work
 ;;
-;; ;;; (define interpret #f)
-;; ;;; (let ()
-;; ;;;   (begin
-;; ;;;   ;; primitive-environment is an environment containing a small
-;; ;;;   ;; number of primitive procedures; it can be extended easily
-;; ;;;   ;; to include additional primitives.
-;; ;;;   (define primitive-environment
-;; ;;;     (list (cons 'apply apply)
-;; ;;;           (cons 'assq assq)
-;; ;;;           (cons 'call/cc call/cc)
-;; ;;;           (cons 'car car)
-;; ;;;           (cons 'cadr cadr)
-;; ;;;           (cons 'caddr caddr)
-;; ;;;           (cons 'cadddr cadddr)
-;; ;;;           (cons 'cddr cddr)
-;; ;;;           (cons 'cdr cdr)
-;; ;;;           (cons 'cons cons)
-;; ;;;           (cons 'eq? eq?)
-;; ;;;           (cons 'list list)
-;; ;;;           (cons 'map map)
-;; ;;;           (cons 'memv memv)
-;; ;;;           (cons 'null? null?)
-;; ;;;           (cons 'pair? pair?)
-;; ;;;           (cons 'read read)
-;; ;;;           (cons 'set-car! set-car!)
-;; ;;;           (cons 'set-cdr! set-cdr!)
-;; ;;;           (cons 'symbol? symbol?)))
-;; ;;; 
-;; ;;;   ;; new-env returns a new environment from a formal parameter
-;; ;;;   ;; specification, a list of actual parameters, and an outer
-;; ;;;   ;; environment.  The symbol? test identifies "improper"
-;; ;;;   ;; argument lists.  Environments are association lists,
-;; ;;;   ;; associating variables with values.
-;; ;;;   (define new-env
-;; ;;;     (lambda (formals actuals env)
-;; ;;;       (cond
-;; ;;;         ((null? formals) env)
-;; ;;;         ((symbol? formals) (cons (cons formals actuals) env))
-;; ;;;         (else
-;; ;;;          (cons (cons (car formals) (car actuals))
-;; ;;;                (new-env (cdr formals) (cdr actuals) env))))))
-;; ;;; 
-;; ;;;   ;; lookup finds the value of the variable var in the environment
-;; ;;;   ;; env, using assq.  Assumes var is bound in env.
-;; ;;;   (define lookup
-;; ;;;     (lambda (var env)
-;; ;;;       (cdr (assq var env))))
-;; ;;; 
-;; ;;;   ;; assign is similar to lookup but alters the binding of the
-;; ;;;   ;; variable var in the environment env by changing the cdr of
-;; ;;;   ;; association pair
-;; ;;;   (define assign
-;; ;;;     (lambda (var val env)
-;; ;;;       (set-cdr! (assq var env) val)))
-;; ;;; 
-;; ;;;   ;; exec evaluates the expression, recognizing all core forms.
-;; ;;;   (define exec
-;; ;;;     (lambda (exp env)
-;; ;;;       (cond
-;; ;;;         ((symbol? exp) (lookup exp env))
-;; ;;;         ((pair? exp)
-;; ;;;          (case (car exp)
-;; ;;;            ((quote) (cadr exp))
-;; ;;;            ((lambda)
-;; ;;;             (lambda vals
-;; ;;;               (let ((env (new-env (cadr exp) vals env)))
-;; ;;;                 (let loop ((exps (cddr exp)))
-;; ;;;                    (if (null? (cdr exps))
-;; ;;;                        (exec (car exps) env)
-;; ;;;                        (begin
-;; ;;;                           (exec (car exps) env)
-;; ;;;                           (loop (cdr exps))))))))
-;; ;;;            ((if)
-;; ;;;             (if (exec (cadr exp) env)
-;; ;;;                 (exec (caddr exp) env)
-;; ;;;                 (exec (cadddr exp) env)))
-;; ;;;            ((set!)
-;; ;;;             (assign (cadr exp)
-;; ;;;                     (exec (caddr exp) env)
-;; ;;;                     env))
-;; ;;;            (else
-;; ;;;             (apply (exec (car exp) env)
-;; ;;;                    (map (lambda (x) (exec x env))
-;; ;;;                         (cdr exp))))))
-;; ;;;         (else exp))))
-;; ;;; 
-;; ;;;   ;; interpret starts execution with the primitive environment.
-;; ;;; (set! interpret
-;; ;;;     (lambda (exp)
-;; ;;;       (exec exp  primitive-environment)))))
+;; (define interpret #f)
+;;  (let ()
+;;    (begin
+;;    ;; primitive-environment is an environment containing a small
+;;    ;; number of primitive procedures; it can be extended easily
+;;    ;; to include additional primitives.
+;;    (define primitive-environment
+;;      (list (cons 'apply apply)
+;;            (cons 'assq assq)
+;;            (cons 'call/cc call/cc)
+;;            (cons 'car car)
+;;            (cons 'cadr cadr)
+;;            (cons 'caddr caddr)
+;;            (cons 'cadddr cadddr)
+;;            (cons 'cddr cddr)
+;;            (cons 'cdr cdr)
+;;            (cons 'cons cons)
+;;            (cons 'eq? eq?)
+;;            (cons 'list list)
+;;            (cons 'map map)
+;;            (cons 'memv memv)
+;;            (cons 'null? null?)
+;;            (cons 'pair? pair?)
+;;            (cons 'read read)
+;;            (cons 'set-car! set-car!)
+;;            (cons 'set-cdr! set-cdr!)
+;;            (cons 'symbol? symbol?)))
+;;  
+;;    ;; new-env returns a new environment from a formal parameter
+;;    ;; specification, a list of actual parameters, and an outer
+;;    ;; environment.  The symbol? test identifies "improper"
+;;    ;; argument lists.  Environments are association lists,
+;;    ;; associating variables with values.
+;;    (define new-env
+;;      (lambda (formals actuals env)
+;;        (cond
+;;          ((null? formals) env)
+;;          ((symbol? formals) (cons (cons formals actuals) env))
+;;          (else
+;;           (cons (cons (car formals) (car actuals))
+;;                 (new-env (cdr formals) (cdr actuals) env))))))
+;;  
+;;    ;; lookup finds the value of the variable var in the environment
+;;    ;; env, using assq.  Assumes var is bound in env.
+;;    (define lookup
+;;      (lambda (var env)
+;;        (cdr (assq var env))))
+;;  
+;;    ;; assign is similar to lookup but alters the binding of the
+;;    ;; variable var in the environment env by changing the cdr of
+;;    ;; association pair
+;;    (define assign
+;;      (lambda (var val env)
+;;        (set-cdr! (assq var env) val)))
+;;  
+;;    ;; exec evaluates the expression, recognizing all core forms.
+;;    (define exec
+;;      (lambda (exp env)
+;;        (cond
+;;          ((symbol? exp) (lookup exp env))
+;;          ((pair? exp)
+;;           (case (car exp)
+;;             ((quote) (cadr exp))
+;;             ((lambda)
+;;              (lambda vals
+;;                (let ((env (new-env (cadr exp) vals env)))
+;;                  (let loop ((exps (cddr exp)))
+;;                     (if (null? (cdr exps))
+;;                         (exec (car exps) env)
+;;                         (begin
+;;                            (exec (car exps) env)
+;;                            (loop (cdr exps))))))))
+;;             ((if)
+;;              (if (exec (cadr exp) env)
+;;                  (exec (caddr exp) env)
+;;                  (exec (cadddr exp) env)))
+;;             ((set!)
+;;              (assign (cadr exp)
+;;                      (exec (caddr exp) env)
+;;                      env))
+;;             (else
+;;              (apply (exec (car exp) env)
+;;                     (map (lambda (x) (exec x env))
+;;                          (cdr exp))))))
+;;          (else exp))))
+;;  
+;;    ;; interpret starts execution with the primitive environment.
+;;  (set! interpret
+;;      (lambda (exp)
+;;        (exec exp  primitive-environment)))))
 ;;
 ;;
