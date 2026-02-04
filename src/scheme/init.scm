@@ -146,10 +146,15 @@
 (define empty '())
 (define (empty? x) (null? x))
 (define (nil? x) (null? x))
-; cool, but we need variable number of lists
-(define (append list1 list2)
+
+(define (append2 list1 list2)
         (if (null? list1) list2
             (cons (car list1) (append (cdr list1) list2))))
+
+(define (append . xs)
+        (if (null? xs) '()
+            (if (null? (tail xs)) (head xs)
+            (append2 (head xs) (apply append (tail xs))))))
 ;;
 
 (define (map0 f lst) '())
@@ -240,12 +245,12 @@
 ;;
 ;; ;;; ------------- pattern matching ------------
 ;; ;;; -------------------------------------------
-(define-macro (foo expr)
-  ;; (display expr)
-  (if (equal? '+ (car expr))
-    (set-car! expr '-)
-    (set-car! expr '+))
-  expr)
+;; (define-macro (foo expr)
+;;   ;; (display expr)
+;;   (if (equal? '+ (car expr))
+;;     (set-car! expr '-)
+;;     (set-car! expr '+))
+;;   expr)
 
 ;; (define-macro (foo expr)
 ;;   ;; (display expr)
@@ -266,12 +271,19 @@
 ;; ;;
 (define-macro (let bindings . body)
   (if (symbol? bindings)
-      `(begin (define ,bindings (lambda ,(map first (head body)) ,@(tail body)))
+      `(let ((,bindings (lambda ,(map first (head body)) ,@(tail body))))
         (,bindings ,@(map second (head body))))
       `((lambda ,(map first bindings) ,@body)
         ,@(map second bindings)) ))
+
+;; (define-macro (let bindings . body)
+;;   (if (symbol? bindings)
+;;       `(begin (define ,bindings (lambda ,(map first (head body)) ,@(tail body)))
+;;         (,bindings ,@(map second (head body))))
+;;       `((lambda ,(map first bindings) ,@body)
+;;         ,@(map second bindings)) ))
 ;;
-;; ;; like let but evaluates val-exprs one-by-one
+;; like let but evaluates val-exprs one-by-one
 (define-macro (let* bindings . body)
         (if (null? bindings)
               `(begin ,@body)
@@ -282,11 +294,18 @@
 ;;          [y (+ x 1)])
 ;;     (list y x))
 ;;
-;; (define-macro (letrec bindings . body)
-;;     ;; (let ((_set (lambda (v) `(set! ,(head v) ,(head (tail v)))  ))) 
-;;     `(let ,(map (lambda (v) (list (head v) '()))  bindings)
-;;        ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings)
-;;          (let () ,@body)));;)
+(define-macro (letrec bindings . body)
+    `(let ,(map (lambda (v) (list (head v) #f))  bindings)
+       ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings)
+         (let () ,@body)))
+
+
+(define-macro (letrec* bindings . body)
+    `(let ,(map (lambda (v) (list (head v) #f))  bindings)
+       ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings)
+         (let () ,@body)))
+
+    ;; `(let ,(map (lambda (v) (list (head v) #f))  bindings) ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings) (let () ,@body))
 ;;
 ;; ;; ;; (def-scheme-macro letrec (bindings &rest body)
 ;; ;; ;;  '(let ,(mapcar #'(lambda (v) (list (first v) nil)) bindings)
@@ -355,6 +374,13 @@
     (begin 
       (set! gensym-id (+ 1 i))
       (string->atom (string-append "gensym-" (number->string i))))))
+
+ ;; (let ((x 5)) 
+ ;;   (letrec* ((foo (lambda (y ) (bar x y ) ) ) 
+ ;;             (bar (lambda (a b ) (+ (* a b ) a ) ) ) ) 
+ ;;     (foo (+ x 3 ) ) ))
+
+
 ;; ;; ;; ;;; --------------------------------------------------
 ;; ;; ;;
 ;; ;; ;; ;;
@@ -894,6 +920,15 @@
 ;; ;;
 ;; ;; ; TODO: make the interpereter work
 ;; ;;
+(define (test1 x)
+  (displaynl x)
+  (if (not x) #f 
+  (if #t (begin (test1 #f) x) x))
+  )
+             ;; (if (begin (displaynl exp) (exec (cadr exp) env))
+             ;;     (begin (displaynl exp) (exec (caddr exp) env))
+             ;;     (exec (cadddr exp) env)))
+             ;;
 (define interpret #f)
  (let ()
    (begin
@@ -951,10 +986,10 @@
  
    ;; exec evaluates the expression, recognizing all core forms.
    (define exec
-     (lambda (exp env)
+     (lambda (exp env) ;; is it so?
        (cond
-         ((symbol? exp) (lookup exp env))
-         ((pair? exp)
+         [(symbol? exp) (lookup exp env)]
+         [(pair? exp)
           (case (car exp)
             ((quote) (cadr exp))
             ((lambda)
@@ -967,8 +1002,8 @@
                            (exec (car exps) env)
                            (loop (cdr exps))))))))
             ((if)
-             (if (exec (cadr exp) env)
-                 (exec (caddr exp) env)
+             (if (begin (displaynl exp) (exec (cadr exp) env))
+                 (begin (displaynl exp) (exec (caddr exp) env))
                  (exec (cadddr exp) env)))
             ((set!)
              (assign (cadr exp)
@@ -977,7 +1012,7 @@
             (else
              (apply (exec (car exp) env)
                     (map (lambda (x) (exec x env))
-                         (cdr exp))))))
+                         (cdr exp)))))]
          (else exp))))
  
    ;; interpret starts execution with the primitive environment.

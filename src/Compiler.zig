@@ -100,7 +100,7 @@ pub fn compile(self: *Compiler) anyerror!i64 {
     const node = try self.vm.stack.pop();
     try self.vm.protectCompile.push(node);
     defer self.vm.protectCompile.clear();
-    node.debugprint("compiling>> ");
+    // node.debugprint("compiling>> ");
 
         self.genExpr(node, &buff, &lexicalCtx, false) catch |e| {
             self.vm.code.shrinkRetainingCapacity(codeRestore);
@@ -134,7 +134,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     try self.genSetMacro(try node.second(), try node.third(), buffer, lexicalCtx);
                     return;
                 } else if (std.mem.eql(u8, "begin", name)) {
-                    try self.genBegin(node.tail(), buffer, lexicalCtx, isTailCall);
+                    // TODO: make sure this is true, maybe makes sense to put them one level up?
+                    const bodies = try self.transformInnerDefines(node.tail());
+                    try self.genBegin(bodies, buffer, lexicalCtx, isTailCall);
                     return;
                 } else if (std.mem.eql(u8, "if", name)) { // TODO: if could be (if #t body)
                     const l = node.len();
@@ -173,36 +175,23 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     // if (xs.len < 3) {
                     //     return error.WrongSyntax;
                     // }
-                    try self.genLambda(try node.second(), try node.ttail(), buffer, lexicalCtx);
+                    const bodies = try self.transformInnerDefines(try node.ttail());
+                    try self.genLambda(try node.second(), bodies, buffer, lexicalCtx);
                     return;
                 } else if (self.primitives.get(name)) |prim| {
                     try self.genPrim(prim, node.tail(), buffer, lexicalCtx);
                     return;
                 } else if (self.macros.get(name)) |macro| {
-                    var p = pair.snd;
-                    if (!std.mem.eql(u8, "quasiquote", name)) {
-                        while (p.getId() != .nil) {
-                            const _p = try p.tryCast(.pair);
-                            _p.fst = try self.expandMacros(_p.fst);
-                            p = try p.tryTail();
-                        }
-                    }
-                    const transformed = try macro.exec(self.vm, pair.snd);
+                    const transformed = try macro.exec(self.vm, lexicalCtx, pair.snd);
                     // std.debug.print("builtin macro: {s}\n", .{name});
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     // transformed.debugprint("... ");
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
-                        var p = pair.snd;
-                    if (!std.mem.eql(u8, "quasiquote", name)) {
-                        while (p.getId() != .nil) {
-                            const _p = try p.tryCast(.pair);
-                            _p.fst = try self.expandMacros(_p.fst);
-                            p = try p.tryTail();
-                        }
-                    }
-
                     const transformed = try self.runUserMacro(usermacro,  pair.snd);
+                    // if (std.mem.eql(u8, "let*", name) or std.mem.eql(u8, "let", name)) {
+                    //     transformed.debugprint("expanded: ");
+                    // }
                     // transformed.debugprint("... ");
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     return;
@@ -379,7 +368,7 @@ pub fn genSet(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.Ar
 
     if (lexicalCtx.findArg(name)) |pos| {
         try buffer.append(self.arena, .{ .LSet = pos } );
-        return;
+        try buffer.append(self.arena, .{ .Const = _void });
     } else {
         try buffer.append(self.arena, .{ .GSet = nameNode });
         try buffer.append(self.arena, .{ .Const = _void });
@@ -410,6 +399,94 @@ pub fn genBegin(self: *Compiler, bodies: NodePtr, buffer: *std.ArrayList(Instruc
     try self.genExpr(b.fst, buffer, lexicalCtx, isTailCall);
 }
 
+//
+//     see 5.2.2  Internal definitions
+//
+// Definitions may occur at the beginning of a <body> 
+// (that is, the body of a lambda, let, let*, letrec, let-syntax, or letrec-syntax expression or 
+//  that of a definition of an appropriate form). Such definitions are known as internal definitions as opposed to the top level definitions described above. The variable defined by an internal definition is local to the <body>. That is, <variable> is bound rather than assigned, and the region of the binding is the entire <body>.
+pub fn transformInnerDefines(self: *Compiler, bodies: NodePtr) anyerror!NodePtr {
+    var hasDefines = false;
+    var b = bodies;
+    while (b.getId() != .nil) {
+        if ((try b.tryCast(.pair)).fst.getId() == .pair) {
+            const d = b.head().cast(.pair).fst;
+            if (d.getId() == .atom and std.mem.eql(u8, d.cast(.atom).name, "define")) {
+                hasDefines = true;
+                break;
+            }
+        }
+        b = b.cast(.pair).snd;
+
+    }
+    if (!hasDefines) {
+        return bodies;
+    }
+    const totalLen = bodies.len();
+    var regularBodies = try std.ArrayList(NodePtr).initCapacity(self.arena, @intCast(totalLen));
+    var defines = try std.ArrayList(NodePtr).initCapacity(self.arena, @intCast(totalLen));
+    b = bodies;
+    loop: while (b.getId() != .nil) {
+        if ((try b.tryCast(.pair)).fst.getId() == .pair) {
+            const d = b.head().cast(.pair).fst;
+                if (d.getId() == .atom and std.mem.eql(u8, d.cast(.atom).name, "define")) {
+                    defines.appendAssumeCapacity(b.head().cast(.pair).snd);
+                    b = b.tail();
+                    continue :loop;
+                }
+            }
+        regularBodies.appendAssumeCapacity(b.head());
+        b = b.tail();
+    }
+    if (regularBodies.items.len == 0) {
+        return error.WrongSyntax;
+    }
+    // std.debug.print("bodies len: {d}, defines len: {d}\n", .{regularBodies.items.len, defines.items.len});
+
+    try self.vm.bldr.newList();
+    try self.vm.bldr.newList();
+    var n = regularBodies.items.len;
+    for (0..n) |i| {
+        try self.vm.stack.push(regularBodies.items[n - 1 - i]);
+        try self.vm.bldr.appendToList();
+    }
+        n = defines.items.len;
+        try self.vm.bldr.newList();
+        for (0..n) |i| {
+            const d = defines.items[n - 1 - i];
+            if ( (try d.tryHead()).getId() == .atom) {
+                try self.vm.stack.push(d);
+                try self.vm.bldr.appendToList();
+            } else if ( d.head().getId() == .pair) {
+                const p = d.head();
+                try self.vm.bldr.newList();
+                try self.vm.stack.push(p.head());
+                try self.vm.bldr.appendToList();
+                   try self.vm.stack.push(d.tail());
+                   try self.vm.stack.push(p.tail());
+                   try self.vm.bldr.appendToList();
+                   try self.vm.bldr.newAtom("lambda");
+                   try self.vm.bldr.appendToList();
+                   
+                try self.vm.bldr.appendToList();
+                try self.vm.stack.push(p.head());
+                try self.vm.bldr.appendToList();
+                try self.vm.bldr.appendToList();
+            } else {
+            return error.WrongSyntax;
+          }
+        }
+    try self.vm.bldr.appendToList();
+    try self.vm.bldr.newAtom("letrec*");
+    try self.vm.bldr.appendToList();
+    try self.vm.bldr.appendToList();
+    const res = try self.vm.stack.pop();
+    // res.debugprint(">>> result: ");
+    try self.vm.protectCompile.push(res);
+    return res;
+
+}
+
 
 
 pub fn genQuote(self: *Compiler, c: NodePtr,  buffer: *std.ArrayList(Instruction)) anyerror!void {
@@ -421,43 +498,6 @@ pub fn genQuote(self: *Compiler, c: NodePtr,  buffer: *std.ArrayList(Instruction
 
 
 
-// pub fn expandMacros(self: *Compiler, ast: *AstNode) anyerror!*AstNode {
-pub fn expandMacros(self: *Compiler, ast: NodePtr) anyerror!NodePtr {
-    // std.debug.print("in expand macros", .{});
-   switch(ast.getId()) {
-        .pair => {
-            const pair = ast.cast(.pair);
-            if (pair.fst.getId() == .atom) {
-                const name = pair.fst.cast(.atom).name;
-                if (self.macros.get(name)) |macro| {
-                    if (!std.mem.eql(u8, "quasiquote", name)) {
-                        var p = pair.snd;
-                        while (p.getId() != .nil) {
-                            const _p = try p.tryCast(.pair);
-                            _p.fst = try self.expandMacros(_p.fst);
-                            p = try p.tryTail();
-                        }
-                    }
-                    return macro.exec(self.vm, pair.snd);
-                } else if (self.vm.macroMap.get(name)) |usermacro| {
-                    if (!std.mem.eql(u8, "quasiquote", name)) {
-                        var p = pair.snd;
-                        while (p.getId() != .nil) {
-                            const _p = try p.tryCast(.pair);
-                            _p.fst = try self.expandMacros(_p.fst);
-                            p = try p.tryTail();
-                        }
-                    }
-
-                    return try self.runUserMacro(usermacro,  pair.snd);
-                }
-
-            }
-            return ast;
-        },
-        else => return ast,
-    }
-}
 
 pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerror!NodePtr {
     // const m = usermacro.cast(.procedure);

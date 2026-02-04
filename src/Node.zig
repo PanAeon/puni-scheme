@@ -229,17 +229,17 @@ pub const NodePtr = struct {
                         return;
                     } else if (std.mem.eql(u8, "quasiquote", name)) {
                         std.debug.print("`", .{});
-                        const snd = n.second() catch @panic("something went wrong");
+                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
                         snd.print();
                         return;
                     } else if (std.mem.eql(u8, "unquote", name)) {
                         std.debug.print(",", .{});
-                        const snd = n.second() catch @panic("something went wrong");
+                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
                         snd.print();
                         return;
                     } else if (std.mem.eql(u8, "unquote-splicing", name)) {
                         std.debug.print(",@", .{});
-                        const snd = n.second() catch @panic("something went wrong");
+                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
                         snd.print();
                         return;
                     }

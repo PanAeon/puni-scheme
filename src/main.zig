@@ -520,6 +520,7 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
                     _ = lineBuffer.pop();
                     if (lastLineLength != 0) {
                         try lineBuffer.append(gpa, '\n');
+                        vm.stack.clear();
                         // vm.returnStack.clear();
                         prompt = "    ";
                         continue :repl;
@@ -528,7 +529,7 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
                 else => {},
             }
             lineBuffer.clearRetainingCapacity();
-            // vm.stack.clear();
+            vm.stack.clear();
             try stdout.print("parse error: {any}\n", .{e});
             try stdout.flush();
             prompt = "==> ";

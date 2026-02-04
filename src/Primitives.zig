@@ -5,13 +5,14 @@ const _true = @import("Node.zig")._true;
 const _false = @import("Node.zig")._false;
 const NodePtr = @import("Node.zig").NodePtr;
 const Node = @import("Node.zig").Node;
+const LexicalContext = @import("Compiler.zig").LexicalCtx;
 const getEnv = @import("Env.zig").getEnv;
 
 
 const Primitives = @This();
 
 pub const Macro = struct {
-    exec: *const fn (*VM, NodePtr) anyerror!NodePtr,
+    exec: *const fn (*VM, *LexicalContext, NodePtr) anyerror!NodePtr,
     name: []const u8,
 };
 
@@ -569,6 +570,23 @@ pub fn _inspect(vm: *VM) anyerror!void {
 //     }
 // }
 
+// regular closure that returns to(?) continuation
+pub fn _cc(vm: *VM) anyerror!void {
+    _ = &vm;
+}
+
+// return closure that when called returns stack to this position..
+pub fn _callcc(vm: *VM) anyerror!void {
+    _ = &vm;
+// (SET-CC (setf stack (top stack)))
+//          (CC     (push (make-fn
+//                          :env (list (vector stack))
+//                          :code '((ARGS 1) (LVAR 1 0 ";" stack) (SET-CC)
+//                                  (LVAR 0 0) (RETURN)))
+//                        stack))
+    
+}
+
 pub const newline: Prim = .{.name = "newline", .exec = _newline,  .numArgs = 0};
 
 pub const @"+": Prim = .{.name = "+", .exec = add,  .varargs = true};
@@ -628,7 +646,7 @@ pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1
 // ------------------------------ macros --------------------------------------
 
 
-pub fn _time(vm: *VM, params: NodePtr) anyerror!NodePtr {
+pub fn _time(vm: *VM, _:*LexicalContext, params: NodePtr) anyerror!NodePtr {
     // if (params.len != 1) {
     //     return error.ArityMismatch;
     // }
@@ -650,10 +668,13 @@ pub fn _time(vm: *VM, params: NodePtr) anyerror!NodePtr {
     return res;
 }
 
-pub fn defineMacro(vm: *VM, params: NodePtr) anyerror!NodePtr {
+pub fn defineMacro(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
     // if (params.len < 2) {
     //     return error.ArityMismatch;
     // }
+    if (lc.rib != null) {
+        return error.IllegalDefine;
+    }
 
     const pair = try params.tryCast(.pair);
 
@@ -685,10 +706,13 @@ pub fn defineMacro(vm: *VM, params: NodePtr) anyerror!NodePtr {
         return error.IllegalArgument;
     }
 }
-pub fn _define(vm: *VM, params: NodePtr) anyerror!NodePtr {
+pub fn _define(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
     // if (params.len < 2) {
     //     return error.ArityMismatch;
     // }
+    if (lc.rib != null) {
+        return error.IllegalDefine;
+    }
 
     const pair = try params.tryCast(.pair);
     if (pair.fst.getId() == .atom) {
@@ -756,14 +780,17 @@ pub fn genCond(vm: *VM, params: NodePtr) anyerror!void {
     try vm.bldr.newList();
     try genCond(vm, params.tail());
     try vm.bldr.appendToList();
-    try vm.stack.push(try clause.second());
+    try vm.stack.push(try clause.tryTail());
+    try vm.bldr.newAtom("begin");
+    try vm.bldr.appendToList();
+
     try vm.bldr.appendToList();
     try vm.stack.push(condition);
     try vm.bldr.appendToList();
     try vm.bldr.newAtom("if");
     try vm.bldr.appendToList();
 }
-pub fn _cond(vm: *VM, params: NodePtr) anyerror!NodePtr {
+pub fn _cond(vm: *VM, _: *LexicalContext, params: NodePtr) anyerror!NodePtr {
     try genCond(vm, params);
 
     const res = try vm.stack.pop();
@@ -772,73 +799,153 @@ pub fn _cond(vm: *VM, params: NodePtr) anyerror!NodePtr {
     return res;
 }
 
-
 pub fn qqExpandList(vm: *VM, xs: NodePtr,  depth: usize) anyerror!void {
-    if (xs.getId() == .nil) {
-        try vm.bldr.newList();
-        try vm.bldr.newList();
-        try vm.bldr.appendToList();
-        try vm.bldr.newAtom("quote");
-        try vm.bldr.appendToList();
-    } else if (xs.getId() != .pair) {
-           const res = try qqExpand(vm, xs, depth);
-           if (res) {
-                return error.InvalidContext; // TODO: maybe not actually ivalid .. 
-           } else {
-               return;
-           }
-    } else {
-         const r = try qqExpand(vm, xs.head(), depth);
-         try qqExpandList(vm, xs.tail(), depth);
-         if (r) {
+    switch (xs.getId()) {
+        .atom, .nil => { 
             try vm.bldr.newList();
-            try vm.bldr.appendToListRev(); // rest
-            try vm.bldr.appendToListRev(); // r
-            try vm.bldr.newAtom("append");
+                try vm.bldr.newList();
+                try vm.stack.push(xs);
+                try vm.bldr.appendToList();
+                try vm.bldr.newAtom("quote");
+                try vm.bldr.appendToList();
             try vm.bldr.appendToList();
-         } else {
-            try vm.bldr.newList();
-            try vm.bldr.appendToListRev(); // rest
-            try vm.bldr.appendToListRev(); // r
-            try vm.bldr.newAtom("cons");
+            try vm.bldr.newAtom("list");
             try vm.bldr.appendToList();
-         }
-    }
-}
 
-// cons list and append
-pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!bool {
-    switch (x.getId()) {
-        .atom => { 
-            try vm.bldr.newList();
-            try vm.stack.push(x);
-            try vm.bldr.appendToList();
-            try vm.bldr.newAtom("quote");
-            try vm.bldr.appendToList();
-            return false;
         },
         .intNumber,
         .floatNumber,
         .string,
         .bool => {
-            try vm.stack.push(x);
-            return false; 
+            try vm.bldr.newList();
+            try vm.stack.push(xs);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("list");
+            try vm.bldr.appendToList();
+
         },
-        .nil => {
-            try vm.stack.push(x);
-            return false; 
+        // .nil => {
+        //     try vm.stack.push(x);
+        // },
+        .pair => {
+            const head = xs.cast(.pair).fst;
+
+            if (head.getId() == .atom) {
+                if (std.mem.eql(u8, "quasiquote", head.cast(.atom).name)) {
+                    try vm.bldr.newList();
+                        try vm.bldr.newList();
+                        try qqExpand(vm, xs.tail(), depth + 1);
+                        try vm.bldr.appendToList();
+                            try vm.bldr.newList();
+                            try vm.bldr.newAtom("quasiquote");
+                            try vm.bldr.appendToList();
+                            try vm.bldr.newAtom("quote");
+                            try vm.bldr.appendToList();
+                        try vm.bldr.appendToList();
+
+                        try vm.bldr.newAtom("cons");
+                        try vm.bldr.appendToList();
+                    try vm.bldr.appendToList();
+                    try vm.bldr.newAtom("list");
+                    try vm.bldr.appendToList();
+                    return;
+                } else if ( std.mem.eql(u8, "unquote", head.cast(.atom).name)
+                        or (std.mem.eql(u8, "unquote-splicing", head.cast(.atom).name))) {
+                    if (depth == 0) {
+                        if (std.mem.eql(u8, "unquote", head.cast(.atom).name)) {
+                            try vm.stack.push(xs.tail());
+                            try vm.bldr.newAtom("list");
+                            try vm.bldr.appendToList();
+                           return;
+                        } else {
+                            // try vm.bldr.newList();
+                            try vm.stack.push(xs.tail());
+                            try vm.bldr.newAtom("append");
+                            try vm.bldr.appendToList();
+                            return;
+                        }
+                    } else {
+                        try vm.bldr.newList();
+                            try vm.bldr.newList();
+                            try qqExpand(vm, xs.tail(), depth - 1);
+                            try vm.bldr.appendToList();
+
+                                try vm.bldr.newList();
+                                try vm.stack.push(xs.head());
+                                try vm.bldr.appendToList();
+                                try vm.bldr.newAtom("quote");
+                                try vm.bldr.appendToList();
+                            try vm.bldr.appendToList();
+
+                            try vm.bldr.newAtom("cons");
+                            try vm.bldr.appendToList();
+                        try vm.bldr.appendToList();
+                        try vm.bldr.newAtom("list");
+                        try vm.bldr.appendToList();
+                        return;
+
+                    }
+            }
+            }
+
+            try vm.bldr.newList();
+
+                try vm.bldr.newList();
+                try qqExpand(vm, xs.tail(), depth);
+                try vm.bldr.appendToList();
+                try qqExpandList(vm, xs.head(), depth);
+                try vm.bldr.appendToList();
+                try vm.bldr.newAtom("append");
+                try vm.bldr.appendToList();
+
+            try vm.bldr.appendToList();
+
+
+            try vm.bldr.newAtom("list");
+            try vm.bldr.appendToList();
         },
+        else => {
+            @panic("not implemented");
+        }
+    }
+
+}
+
+// direct translation of Quasiquotation in Lisp (Bawden).pdf (appendix B)
+pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!void {
+    switch (x.getId()) {
+        .atom, .nil => { 
+            // try vm.bldr.newList();
+                try vm.bldr.newList();
+                try vm.stack.push(x);
+                try vm.bldr.appendToList();
+                try vm.bldr.newAtom("quote");
+                try vm.bldr.appendToList();
+            // try vm.bldr.appendToList();
+            // try vm.bldr.newAtom("list");
+            // try vm.bldr.appendToList();
+        },
+        .intNumber,
+        .floatNumber,
+        .string,
+        .bool => {
+            // try vm.bldr.newList();
+            try vm.stack.push(x);
+            // try vm.bldr.appendToList();
+            // try vm.bldr.newAtom("list");
+            // try vm.bldr.appendToList();
+            // try vm.stack.push(x);
+        },
+        // .nil => {
+        //     try vm.stack.push(x);
+        // },
         .pair => {
             const head = x.cast(.pair).fst;
             if (head.getId() == .atom) {
                 if (std.mem.eql(u8, "quasiquote", head.cast(.atom).name)) {
-                    // std.debug.panic("nested quasiquotes not implemented", .{});
-                    const res = try qqExpand(vm, x.tail(), depth + 1);
-                    if (res) {
-                        @panic("is this possible?");
-                    }
                     try vm.bldr.newList();
-                    try vm.bldr.appendToListRev();
+                    try qqExpand(vm, x.tail(), depth + 1);
+                    try vm.bldr.appendToList();
                         try vm.bldr.newList();
                         try vm.bldr.newAtom("quasiquote");
                         try vm.bldr.appendToList();
@@ -846,37 +953,46 @@ pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!bool {
                         try vm.bldr.appendToList();
                     try vm.bldr.appendToList();
 
-                    return false;
-                } else if (std.mem.eql(u8, "unquote", head.cast(.atom).name)) {
+                    try vm.bldr.newAtom("cons");
+                    try vm.bldr.appendToList();
+                    return;
+                } else if ( std.mem.eql(u8, "unquote", head.cast(.atom).name)
+                        or (std.mem.eql(u8, "unquote-splicing", head.cast(.atom).name))) {
                     if (depth == 0) {
-                        try vm.stack.push(try x.second());
-                        return false;
+                        if (std.mem.eql(u8, "unquote", head.cast(.atom).name)
+                            and (x.tail().getId() != .nil)
+                            and (x.tail().tail().getId() == .nil)) {
+                            try vm.stack.push(x.tail().head());
+                            return;
+                        } else {
+                            return error.IllegalArgument;
+                        }
                     } else {
-                        @panic("not implemented");
-                        // const res = try qqExpand(vm, xs[1], depth - 1);
-                        // if (res.@"1") {
-                        //     @panic("apparently this is possible");
-                        // }
-                        // const z = vm.newList(&.{vm.newAtom("unquote") , res.@"0"});
-                        // return .{ vm.newList(&.{vm.newAtom("quote"), z}), false };
+                        try vm.bldr.newList();
+                        try qqExpand(vm, x.tail(), depth - 1);
+                        try vm.bldr.appendToList();
+
+                            try vm.bldr.newList();
+                            try vm.stack.push(x.head());
+                            try vm.bldr.appendToList();
+                            try vm.bldr.newAtom("quote");
+                            try vm.bldr.appendToList();
+                        try vm.bldr.appendToList();
+
+                        try vm.bldr.newAtom("cons");
+                        try vm.bldr.appendToList();
+                        return;
+
                     }
-                } else if (std.mem.eql(u8, "unquote-splicing", head.cast(.atom).name)) {
-                    if (depth == 0) {
-                        try vm.stack.push(try x.second());
-                        return true;
-                    } else {
-                        @panic("not implemented");
-                        // const res = try qqExpand(vm, xs[1], depth - 1);
-                        // if (res.@"1") {
-                        //     @panic("is this possible?");
-                        // }
-                        // const z = vm.newList(&.{vm.newAtom("unquote-splicing") , res.@"0"});
-                        // return .{ vm.newList(&.{vm.newAtom("quote"), z}), false };
-                    }
-                }
+                } 
             }
-            try qqExpandList(vm, x, depth);
-            return false;
+            try vm.bldr.newList();
+            try qqExpand(vm, x.tail(), depth);
+            try vm.bldr.appendToList();
+            try qqExpandList(vm, x.head(), depth);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("append");
+            try vm.bldr.appendToList();
         },
         else => { 
             @panic("not implemented");
@@ -885,16 +1001,16 @@ pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!bool {
 }
 
 
-pub fn _quasiquote(vm: *VM, params: NodePtr) anyerror!NodePtr {
+pub fn _quasiquote(vm: *VM, _: *LexicalContext, params: NodePtr) anyerror!NodePtr {
     if (params.len() != 1) {
         return error.BadSyntax;
     }
     // params[0].debugprint("quasiquote: ");
-    _ = try qqExpand(vm, params.head(), 0);
+    try qqExpand(vm, params.head(), 0);
     // r.@"0".debugprint("quasiquote expansion");
 
     const res = try vm.stack.pop();
-    res.debugprint("result:");
+    // res.debugprint("res>>> ");
     try vm.protectCompile.push(res);
     return res;
 }
