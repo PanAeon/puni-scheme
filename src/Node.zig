@@ -596,7 +596,7 @@ pub const NodeBuilder = struct {
         // try self.vm.stack.reverseInPlace(n);
         try self.newVector(n, populate);
 
-        try self.vm.stack.push(self.vm.env);
+        try self.vm.stack.push(self.vm.closure);
         try self.appendToListRev();
         // self.vm.env = try self.vm.stack.pop();
     }

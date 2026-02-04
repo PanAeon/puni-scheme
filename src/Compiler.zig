@@ -208,7 +208,11 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
         .atom => {
             const name = node.cast(.atom).name;
             if (lexicalCtx.findArg(name)) |pos| {
-                try buffer.append(self.arena, .{ .LVar = pos } );
+                if (pos.@"0" == 0) {
+                   try buffer.append(self.arena, .{ .LocalVar = pos.@"1" } );
+                } else {
+                   try buffer.append(self.arena, .{ .FreeVar = pos } );
+                }
                 return;
             } else {
                 try buffer.append(self.arena, .{ .GVar = node });
@@ -226,6 +230,7 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
     var numParams: usize = 0;
     var varargs: bool = false;
     const isImproper = params.isImproperList();
+    const parentNumArgs = if (lexicalCtx.rib) |r| r.params.len else 0;
     if (params.getId() == .nil) {
         lexicalCtx.push(self.arena, &.{});
         numParams = 0;
@@ -262,16 +267,16 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
     } else {
         return error.WrongSyntax;
     }
-    try lambdaBuff.append(self.arena, .{ .Args = numParams } );
+    // try lambdaBuff.append(self.arena, .{ .Args = numParams } );
 
     var b = try bodies.tryCast(.pair);
     while (b.snd.getId() != .nil) {
         try self.genExpr(b.fst, &lambdaBuff, lexicalCtx, false);
-        try lambdaBuff.append(self.arena, .Pop );
+        try lambdaBuff.append(self.arena, .{ .Pop = 1 } );
         b = try b.snd.tryCast(.pair);
     }
     try self.genExpr(b.fst, &lambdaBuff, lexicalCtx, true);
-    try lambdaBuff.append(self.arena, .Return );
+    try lambdaBuff.append(self.arena, .{ .Return = @intCast(numParams) } );
 
 
     const offset = self.vm.code.items.len;
@@ -281,7 +286,9 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
     // try self.vm.bldr.newProc(@intCast(offset), varargs);
     // const proc = try self.vm.stack.pop();
     // try self.vm.data.append(self.allocator, proc);
-    try buffer.append(self.arena, .{ .Fn = .{ .code = @intCast(offset), .varargs = varargs, .numArgs = @intCast(numParams) }} );
+    try buffer.append(self.arena, .{ .Fn = .{ 
+        .code = @intCast(offset), .varargs = varargs, .numArgs = @intCast(numParams),
+        .parentNumArgs = @intCast(parentNumArgs) }} );
     lexicalCtx.pop();
     // return const lambda I suppose..
 }
@@ -338,6 +345,11 @@ pub fn genAp(self: *Compiler, xs: NodePtr, buffer: *std.ArrayList(Instruction), 
         b = b.tail();
         l += 1;
     }
+    if (isTailCall) {
+
+       const parentNumArgs = if (lexicalCtx.rib) |r| r.params.len else 0;
+       try buffer.append(self.arena, .{ .Shift = .{l, @intCast(parentNumArgs)} });
+    }
 
     try self.genExpr(f, buffer, lexicalCtx, false);
 
@@ -367,7 +379,7 @@ pub fn genSet(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.Ar
     try self.genExpr(expr, buffer, lexicalCtx, false);
 
     if (lexicalCtx.findArg(name)) |pos| {
-        try buffer.append(self.arena, .{ .LSet = pos } );
+        try buffer.append(self.arena, .{ .FreeSet = pos } );
         try buffer.append(self.arena, .{ .Const = _void });
     } else {
         try buffer.append(self.arena, .{ .GSet = nameNode });
@@ -393,7 +405,7 @@ pub fn genBegin(self: *Compiler, bodies: NodePtr, buffer: *std.ArrayList(Instruc
     var b = try bodies.tryCast(.pair);
     while (b.snd.getId() != .nil) {
         try self.genExpr(b.fst, buffer, lexicalCtx, false);
-        try buffer.append(self.arena, .Pop );
+        try buffer.append(self.arena, .{ .Pop = 1 } );
         b = try b.snd.tryCast(.pair);
     }
     try self.genExpr(b.fst, buffer, lexicalCtx, isTailCall);
@@ -502,6 +514,7 @@ pub fn genQuote(self: *Compiler, c: NodePtr,  buffer: *std.ArrayList(Instruction
 pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerror!NodePtr {
     // const m = usermacro.cast(.procedure);
     const codeRestore = self.vm.code.items.len;
+    try self.vm.bldr.newIntNumber(0);
     try self.vm.bldr.newList();
     try self.vm.bldr.newIntNumber(@intCast(codeRestore + 1));
     var p = params;

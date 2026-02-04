@@ -107,7 +107,7 @@ pub fn sub(vm: *VM) anyerror!void {
 }
 
 
-
+// FIXME: need to be fixed..
 pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
     var args = try vm.stack.pop(); // last ones
     const _f = try vm.stack.pop();
@@ -115,7 +115,8 @@ pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
         return error.ExpectedList;
     }
 
-    try vm.stack.push(vm.env);
+    try vm.bldr.newIntNumber(@intCast(vm.frame));
+    try vm.stack.push(vm.closure);
     try vm.bldr.newIntNumber(@intCast(vm.ip + 1)); // push return value to the stack
 
     var numArgs:u32 = 0;
@@ -141,7 +142,7 @@ pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
                             return error.ArityMismatch;
                         }
                     }
-                    vm.env = f.env;
+                    vm.closure = f.env;
                     vm.ip = @as(i64, @intCast(f.code)) - 1;
 }
 

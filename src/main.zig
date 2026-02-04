@@ -27,16 +27,19 @@ pub const InitialGCThreshold: usize = 8; // 8
 
 const InstructionTag = enum { 
     Const,
-    LVar,
+    LocalVar, // search in the current frame,
+    LocalSet,
     GVar,
-    LSet,
     GSet,
+    FreeVar, // search in the current closure
+    FreeSet,
     Pop,
     TJump,
     FJump,
     Jump,
     Return,
     Args,
+    Shift,
     JCall,
     Save,
     Fn,
@@ -46,18 +49,21 @@ const InstructionTag = enum {
 };
 pub const Instruction = union(InstructionTag) {
     Const: NodePtr,
-    LVar: struct {u32, u32},
+    LocalVar: u32,
+    LocalSet: u32,
     GVar: NodePtr,
-    LSet: struct{u32, u32},
     GSet: NodePtr,
-    Pop,
+    FreeVar: struct {u32, u32},
+    FreeSet: struct{u32, u32},
+    Pop: i64,
     TJump :i64,
     FJump: i64,
     Jump: i64,
-    Return,
+    Return: i64,
     Args: usize,
+    Shift: struct{u32, u32},
     JCall: u32, // num of arguments
-    Save: i64, // return address
+    Save: i64, // return address and closure
     Fn: Function, // create closure from arg and current env, push result on the stack
     Primitive: *const Prim,
     MSet: NodePtr,
@@ -66,6 +72,7 @@ pub const Instruction = union(InstructionTag) {
     const Function = struct {
         code: u32,
         numArgs: u16,
+        parentNumArgs:u15,
         varargs: bool,
     };
 
@@ -81,17 +88,20 @@ pub const Instruction = union(InstructionTag) {
                      std.debug.print("\n", .{});
                  },
                 .Primitive => |p| std.debug.print("Primitive {s}\n", .{p.name}),
-                .LVar => |offset|   std.debug.print("Lvar {d} {d}\n", .{offset.@"0", offset.@"1"}),
+                .LocalVar => |idx|   std.debug.print("Localvar {d}\n", .{idx}),
+                .LocalSet => |idx|  std.debug.print("LocalSet {d}\n", .{idx}),
                 .GVar => |p|  std.debug.print("GVar {s}\n", .{p.cast(.atom).name}),
-                .LSet => |offset|  std.debug.print("Lset {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .GSet => |p|  std.debug.print("GSet {s}\n", .{p.cast(.atom).name}),
+                .FreeVar => |offset|   std.debug.print("FreeVar {d} {d}\n", .{offset.@"0", offset.@"1"}),
+                .FreeSet => |offset|  std.debug.print("FreeSet {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .Args => |n| std.debug.print("Args {d}\n", .{n}),
+                .Shift => |x| std.debug.print("Shift n:{d} m:{d}\n", .{x.@"0", x.@"1"}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
                 .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
-                .Pop => std.debug.print("Pop\n", .{}),
+                .Pop => |n| std.debug.print("Pop {d}\n", .{n}),
                 .MSet => |p|  std.debug.print("MSet {any}\n", .{p}),
-                .Return => std.debug.print("Return\n", .{}),
+                .Return => |n| std.debug.print("Return {d}\n", .{n}),
         }
     }
 };
@@ -109,7 +119,9 @@ pub const VM = struct {
     symbolMap: std.StringHashMap(NodePtr),
     macroMap: std.StringHashMap(NodePtr),
     consAlloctor: *ConsPage,
-    env: NodePtr = _nil,
+    // env: NodePtr = _nil,
+    frame: i64 = 0, // current frame idx in the stack
+    closure: NodePtr = _nil,
     lastNode: ?NodePtr = null,
     numObjects: usize = 0,
     maxObjects: usize = InitialGCThreshold,
@@ -158,7 +170,7 @@ pub const VM = struct {
         self.globalEnv.clearRetainingCapacity();
         self.macroMap.clearRetainingCapacity();
         self.disableGC = false;
-        self.env = _nil;
+        self.closure = _nil;
         self.gc();
         self.code.deinit(self.allocator);
         self.data.deinit(self.allocator);
@@ -180,7 +192,7 @@ pub const VM = struct {
         self.protectStack.clear();
     }
     pub fn markAll(self: *VM) void {
-        mark(self.env);
+        mark(self.closure);
         
         for (0..self.stack.size) |i| {
             mark(self.stack.items[i]);
@@ -364,14 +376,17 @@ pub const VM = struct {
                 .Primitive => |p| {
                     try p.exec(self);
                 },
-                .Pop => { _ = try self.stack.pop();},
-                .LVar => |offset| {
-                    const value = getEnv(self.env, offset.@"0", offset.@"1");
-                    if (value) |v| {
-                        try self.stack.push(v);
-                    } else {
-                        return error.UnknownName;
+                .Pop => |n| { 
+                    for (0..@intCast(n)) |_| {
+                       _ = try self.stack.pop();
                     }
+                },
+                .LocalVar => |idx| {
+                    const value = self.stack.items[@intCast(self.frame + idx + 3)];
+                    try self.stack.push(value);
+                },
+                .LocalSet => |idx| {
+                    self.stack.items[@intCast(self.frame + idx + 3)] = try self.stack.pop();
                 },
                 .GVar => |p| {
                     const name = (try p.tryCast(.atom)).name;
@@ -383,8 +398,16 @@ pub const VM = struct {
                         return error.UnknownName;
                     }
                 },
-                .LSet => |offset| {
-                    const maybeRef = getEnvRef(self.env, offset.@"0", offset.@"1");
+                .FreeVar => |offset| {
+                    const value = getEnv(self.closure, offset.@"0" - 1, offset.@"1");
+                    if (value) |v| {
+                        try self.stack.push(v);
+                    } else {
+                        return error.UnknownName;
+                    }
+                },
+                .FreeSet => |offset| {
+                    const maybeRef = getEnvRef(self.closure, offset.@"0" - 1, offset.@"1");
                     if (maybeRef) |ref| {
                         ref.* = try self.stack.pop();
                     } else {
@@ -396,35 +419,35 @@ pub const VM = struct {
                     try self.globalEnv.put(name, try self.stack.pop());
                 },
                 .Args => |n| {
-                    const v = self.env.head().cast(.vector);
 
-                    // const ret = try self.stack.pop();
-                    for (0..n) |i| {
-                        v.xs[n - i - 1] = try self.stack.pop();
-                    }
-                    // try self.stack.push(ret);
-                    // try self.bldr.newEnv(n);
+                    // const v = self.env.head().cast(.vector);
+
+                    // for (0..n) |i| {
+                    //     v.xs[n - i - 1] = try self.stack.pop();
+                    // }
+                    
+                    try self.bldr.newEnv(n, true);
+                    self.closure = try self.stack.pop();
+                },
+                .Shift => |x| { // moves top n elements m places down the stack
+                    try self.stack.shift(x.@"0",x.@"1");
                 },
                 .Fn   => |x| {
                     try self.createProcedure(x);
                     // try self.bldr.newProc(x.@"0");
                 },
-                // .Call => |numArgs| {
-                //     _ = &numArgs;
-                //     const f = try (try self.stack.pop()).tryCast(.procedure);
-                //     self.env = f.env;
-                //     try self.bldr.newIntNumber(@intCast(self.ip + 1)); // push return value to the stack
-                //     self.ip = @as(i64, @intCast(f.code)) - 1;
-                // },
                 .Save => |offset| {
-                    try self.stack.push(self.env);
+                    try self.bldr.newIntNumber(@intCast(self.frame));
+                    try self.stack.push(self.closure);
                     try self.bldr.newIntNumber(@intCast(self.ip + offset)); // push return value to the stack
                 },
-                .JCall => |numArgs| { // FIXME: now i need to rotate params
+                .JCall => |numArgs| {
                     const _f = try self.stack.pop();
                     self.protect(_f);
                     const f = try _f.tryCast(.procedure);
-                    if (f.varargs) {
+                    // std.debug.print("stack size: {d}\n", .{self.stack.size});
+                    self.frame = @intCast(self.stack.size - numArgs - 3);
+                    if (f.varargs) { // TODO: think about varargs..
                         if (numArgs + 1 < f.numArgs) {
                             return error.ArityMismatch;
                         }
@@ -438,7 +461,7 @@ pub const VM = struct {
                             return error.ArityMismatch;
                         }
                     }
-                    self.env = f.env;
+                    self.closure = f.env;
                     self.ip = @as(i64, @intCast(f.code)) - 1;
                 },
 
@@ -446,10 +469,15 @@ pub const VM = struct {
                     const name = (try p.tryCast(.atom)).name;
                     try self.macroMap.put(name, try self.stack.pop());
                 },
-                .Return => {
+                .Return => |n| {
                     const value = try self.stack.pop();
+
+                    for (0..@intCast(n)) |_| { // drop N args..
+                       _ = try self.stack.pop();
+                    }
                     const addr  = try self.stack.pop();
-                    self.env = try self.stack.pop();
+                    self.closure = try self.stack.pop();
+                    self.frame   = try (try self.stack.pop()).tryGetIntValue();
                     self.ip = (try addr.tryGetIntValue()) - 1;
                     try self.stack.push(value);
                 },
@@ -458,7 +486,11 @@ pub const VM = struct {
     }
 
     pub fn createProcedure(self: *VM, f: Instruction.Function) anyerror!void {
-        try self.bldr.newEnv(f.numArgs, false);
+        // try self.stack.push(self.closure);
+        for (0..f.parentNumArgs) |i| {
+            try self.stack.push(self.stack.items[@intCast(self.frame + @as(i64, @intCast(i)) + 3)]);
+        }
+        try self.bldr.newEnv(f.parentNumArgs, true);
         try self.bldr.newProc(@intCast(f.code), f.varargs, f.numArgs);
         // self.lastProc = try self.stack.head();
     }
@@ -545,7 +577,8 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
                 continue :repl;
             };
 
-            vm.env = _nil;
+            vm.closure = _nil;
+            vm.frame = 0;
             vm.ip = start;
             vm.run() catch |e| {
                 lineBuffer.clearRetainingCapacity();
@@ -589,6 +622,26 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     var vm = try VM.init(allocator, true);
     defer vm.destroy();
+    
+
+    // for (0..7) |_| {
+    //     try vm.bldr.newIntNumber(0);
+    //     // try vm.stack.push(NodePtr.
+    // }
+    // try vm.bldr.newIntNumber(1);
+    // try vm.bldr.newIntNumber(2);
+    // try vm.bldr.newIntNumber(3);
+    //
+    // vm.printStack();
+    //
+    // try vm.stack.shift(3, 7);
+    //
+    // vm.printStack();
+    //
+    // if (true) {
+    //     return;
+    // }
+
     var parser = Parser.init(vm);
     // vm.disableGC = true;
     {

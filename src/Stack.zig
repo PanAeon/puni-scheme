@@ -71,7 +71,7 @@ pub fn Stack(comptime T: type) type {
             }
             return self.items[self.size - 1 - n];
         }
-        pub fn shift(self: *Self, n:usize) !void {
+        pub fn shift1(self: *Self, n:usize) !void {
             if (n < 2) {
                 return;
             }
@@ -86,6 +86,16 @@ pub fn Stack(comptime T: type) type {
             self.items[self.size - 1] = first;
 
             // return self.items[self.size - 1 - n];
+        }
+        pub fn shift(self: *Self, n:u32, m:u32) !void {
+            if (m == 0) {
+                return;
+            }
+            const firstIdx = self.size - n - m;
+            for (firstIdx..self.size-m) |i| {
+                self.items[i] = self.items[i+m];
+            }
+            self.size -= m;
         }
         pub fn headRef(self: *Self) !*T {
             if (self.size == 0) {
