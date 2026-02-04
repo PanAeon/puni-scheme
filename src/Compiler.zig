@@ -183,6 +183,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     return;
                 } else if (self.macros.get(name)) |macro| {
                     const transformed = try macro.exec(self.vm, lexicalCtx, pair.snd);
+                    // if (std.mem.eql(u8, "cond", name) ) {
+                    //     transformed.debugprint("expanded: ");
+                    // }
                     // std.debug.print("builtin macro: {s}\n", .{name});
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     // transformed.debugprint("... ");
@@ -202,7 +205,7 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
         .nil => {
                 return error.EmptyApplication;
         },
-        .intNumber, .floatNumber, .bool, .string, .vector => {
+        .intNumber, .floatNumber, .bool, .string, .vector => { // FIXME: shouldn't string and vector go to data?
             try buffer.append(self.arena, .{.Const = node});
         },
         .atom => {
@@ -345,13 +348,13 @@ pub fn genAp(self: *Compiler, xs: NodePtr, buffer: *std.ArrayList(Instruction), 
         b = b.tail();
         l += 1;
     }
-    if (isTailCall) {
 
+    try self.genExpr(f, buffer, lexicalCtx, false); // here we shifting too early for f to create closure?
+
+    if (isTailCall) {
        const parentNumArgs = if (lexicalCtx.rib) |r| r.params.len else 0;
        try buffer.append(self.arena, .{ .Shift = .{l, @intCast(parentNumArgs)} });
     }
-
-    try self.genExpr(f, buffer, lexicalCtx, false);
 
     try buffer.append(self.arena, .{ .JCall = l });
     if (!isTailCall) {
@@ -379,8 +382,15 @@ pub fn genSet(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.Ar
     try self.genExpr(expr, buffer, lexicalCtx, false);
 
     if (lexicalCtx.findArg(name)) |pos| {
-        try buffer.append(self.arena, .{ .FreeSet = pos } );
-        try buffer.append(self.arena, .{ .Const = _void });
+        if (pos.@"0" == 0) {
+           try buffer.append(self.arena, .{ .LocalSet = pos.@"1" } );
+           try buffer.append(self.arena, .{ .Const = _void });
+           // try buffer.append(self.arena, .{ .LocalVar = pos.@"1" } );
+        } else {
+           try buffer.append(self.arena, .{ .FreeSet = pos } );
+           try buffer.append(self.arena, .{ .Const = _void });
+           // try buffer.append(self.arena, .{ .FreeVar = pos } );
+        }
     } else {
         try buffer.append(self.arena, .{ .GSet = nameNode });
         try buffer.append(self.arena, .{ .Const = _void });
@@ -513,6 +523,7 @@ pub fn genQuote(self: *Compiler, c: NodePtr,  buffer: *std.ArrayList(Instruction
 
 pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerror!NodePtr {
     // const m = usermacro.cast(.procedure);
+    // const stackBefore = self.vm.stack.size;
     const codeRestore = self.vm.code.items.len;
     try self.vm.bldr.newIntNumber(0);
     try self.vm.bldr.newList();
@@ -536,6 +547,10 @@ pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerr
 
     self.vm.code.shrinkRetainingCapacity(codeRestore);
     const res = try self.vm.stack.pop();
+
+    // const stackAfter = self.vm.stack.size;
+    // std.debug.print("user macro, stack before {d}, after {d} \n" , .{stackBefore, stackAfter});
+    // _ = try self.vm.stack.pop();
     try self.vm.protectCompile.push(res);
     return res;
 }

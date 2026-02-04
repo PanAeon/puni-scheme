@@ -430,7 +430,9 @@ pub const VM = struct {
                     self.closure = try self.stack.pop();
                 },
                 .Shift => |x| { // moves top n elements m places down the stack
+                    const last = try self.stack.pop(); // TODO: think of a better solution
                     try self.stack.shift(x.@"0",x.@"1");
+                    try self.stack.push(last);
                 },
                 .Fn   => |x| {
                     try self.createProcedure(x);

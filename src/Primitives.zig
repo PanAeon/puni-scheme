@@ -111,6 +111,8 @@ pub fn sub(vm: *VM) anyerror!void {
 pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
     var args = try vm.stack.pop(); // last ones
     const _f = try vm.stack.pop();
+    vm.protect(args);
+    vm.protect(_f);
     if (!(args.getId() == .pair or args.getId() == .nil)) {
         return error.ExpectedList;
     }
@@ -126,8 +128,10 @@ pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
         args = args.cast(.pair).snd;
     }
 
-    // unfortunately have to inline this here
+    // unfortunately have to inline this here, or do I?
                     const f = try _f.tryCast(.procedure);
+
+                    vm.frame = @intCast(vm.stack.size - numArgs - 3);
                     if (f.varargs) {
                         if (numArgs + 1 < f.numArgs) {
                             return error.ArityMismatch;
