@@ -26,6 +26,11 @@ pub const LexicalCtx = struct {
        params: [][]const u8,
     };
 
+    const Prams = struct {
+        name: []const u8,
+        isBoxed: bool = false,
+    };
+
     pub fn push(self: *LexicalCtx, arena: std.mem.Allocator, params: []const []const u8) void {
         const rib = arena.create(Rib) catch @panic("oom");
         rib.* = .{
@@ -192,9 +197,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
                     const transformed = try self.runUserMacro(usermacro,  pair.snd);
-                    // if (std.mem.eql(u8, "let*", name) or std.mem.eql(u8, "let", name)) {
-                    //     transformed.debugprint("expanded: ");
-                    // }
+                    if (std.mem.eql(u8, "let--", name) or std.mem.eql(u8, "let", name)) {
+                        transformed.debugprint("expanded: ");
+                    }
                     // transformed.debugprint("... ");
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     return;
@@ -280,6 +285,10 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
     }
     try self.genExpr(b.fst, &lambdaBuff, lexicalCtx, true);
     try lambdaBuff.append(self.arena, .{ .Return = @intCast(numParams) } );
+
+    // ok, it's good time to insert box commands... hmm, what about unbox?
+    // now I need to expand macros again beforehand?
+    // can't be bothered .. let's fix boxes afterwards
 
 
     const offset = self.vm.code.items.len;

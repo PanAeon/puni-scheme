@@ -312,13 +312,13 @@
 ;; ;; ;;    .,body))
 ;;
 ;; ;; example usage:
-;;  ;; (letrec ([is-even? (lambda (n)
-;;  ;;                       (or (zero? n)
-;;  ;;                           (is-odd? (sub1 n))))]
-;;  ;;           [is-odd? (lambda (n)
-;;  ;;                      (and (not (zero? n))
-;;  ;;                           (is-even? (sub1 n))))])
-;;  ;;    (is-odd? 11))
+ ;; (letrec ([is-even? (lambda (n)
+ ;;                       (or (zero? n)
+ ;;                           (is-odd? (sub1 n))))]
+ ;;           [is-odd? (lambda (n)
+ ;;                      (and (not (zero? n))
+ ;;                           (is-even? (sub1 n))))])
+ ;;    (is-odd? 11))
 ;;
 ;; ;; (define-macro (gen-fun pr)
 ;; ;;         `set! ,pr (lambda xs `(,pr ,@xs)))
@@ -358,12 +358,13 @@
 ;; ;; ;; (expand-macro '(let ((r 1)) r))
 ;; ;; ;; (let x ((a 1)) a)
 ;; ;;
-;; ;; ;; (let fac ([n 10])
-;; ;; ;;         fac
-;; ;; ;;         (if (zero? n)
-;; ;; ;;             1
-;; ;; ;;             (* n (fac (sub1 n)))))
-;; ;;
+;; doesn't work, but should.. named let not working... 
+;; maybe expand to letrec?
+;; (let fac ([n 10])
+;;         (if (zero? n)
+;;             1
+;;             (* n (fac (sub1 n)))))
+
 (define gensym-id 0)
 ;;
 ;;

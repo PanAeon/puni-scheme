@@ -38,7 +38,6 @@ const InstructionTag = enum {
     FJump,
     Jump,
     Return,
-    Args,
     Shift,
     JCall,
     Save,
@@ -60,7 +59,6 @@ pub const Instruction = union(InstructionTag) {
     FJump: i64,
     Jump: i64,
     Return: i64,
-    Args: usize,
     Shift: struct{u32, u32},
     JCall: u32, // num of arguments
     Save: i64, // return address and closure
@@ -94,7 +92,6 @@ pub const Instruction = union(InstructionTag) {
                 .GSet => |p|  std.debug.print("GSet {s}\n", .{p.cast(.atom).name}),
                 .FreeVar => |offset|   std.debug.print("FreeVar {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .FreeSet => |offset|  std.debug.print("FreeSet {d} {d}\n", .{offset.@"0", offset.@"1"}),
-                .Args => |n| std.debug.print("Args {d}\n", .{n}),
                 .Shift => |x| std.debug.print("Shift n:{d} m:{d}\n", .{x.@"0", x.@"1"}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
                 .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
@@ -417,17 +414,6 @@ pub const VM = struct {
                 .GSet => |p| {
                     const name = (try p.tryCast(.atom)).name;
                     try self.globalEnv.put(name, try self.stack.pop());
-                },
-                .Args => |n| {
-
-                    // const v = self.env.head().cast(.vector);
-
-                    // for (0..n) |i| {
-                    //     v.xs[n - i - 1] = try self.stack.pop();
-                    // }
-                    
-                    try self.bldr.newEnv(n, true);
-                    self.closure = try self.stack.pop();
                 },
                 .Shift => |x| { // moves top n elements m places down the stack
                     const last = try self.stack.pop(); // TODO: think of a better solution
