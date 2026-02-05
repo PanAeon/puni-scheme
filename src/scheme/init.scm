@@ -268,9 +268,12 @@
 ;; ;; ;;     (let ([id val-expr] ...) body ...+)
 ;; ;; ;; (let proc-id ([id init-expr] ...) body ...+)
 ;; ;;
+
+;; FIXME: named lambda is probably wrong..
+
 (define-macro (let bindings . body)
   (if (symbol? bindings)
-      `(let ((,bindings (lambda ,(map first (head body)) ,@(tail body))))
+      `(letrec ((,bindings (lambda ,(map first (head body)) ,@(tail body))))
         (,bindings ,@(map second (head body))))
       `((lambda ,(map first bindings) ,@body)
         ,@(map second bindings)) ))
@@ -387,11 +390,6 @@
  ;;             (bar (lambda (a b ) (+ (* a b ) a ) ) ) ) 
  ;;     (foo (+ x 3 ) ) ))
 
-(define (or1  xs) 
-    (let ((x 5))
-        (cond ;;[(null? xs) #f]
-              [(null? (tail xs)) #t]
-              [else 5])))
 ;;'(if (null? (tail xs ) ) (begin #t ) 5 )
 ;; ((lambda (ys)  (if (null? (tail ys ) ) #t  5)  ) '(1 2 3 4 5)) 
 
@@ -941,11 +939,11 @@
 ;; ;;
 ;; ;; ; TODO: make the interpereter work
 ;; ;;
-(define (test1 x)
-  (displaynl x)
-  (if (not x) #f 
-  (if #t (begin (test1 #f) x) x))
-)
+;; (define (test1 x)
+;;   (displaynl x)
+;;   (if (not x) #f 
+;;   (if #t (begin (test1 #f) x) x))
+;; )
 
 (define interpret #f)
  (let ()

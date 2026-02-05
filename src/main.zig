@@ -28,11 +28,14 @@ pub const InitialGCThreshold: usize = 8; // 8
 const InstructionTag = enum { 
     Const,
     LocalVar, // search in the current frame,
+    LocalVarIndirect, // access boxed value
     LocalSet,
     GVar,
     GSet,
     FreeVar, // search in the current closure
+    FreeVarIndirect,
     FreeSet,
+    Box,
     Pop,
     TJump,
     FJump,
@@ -49,11 +52,14 @@ const InstructionTag = enum {
 pub const Instruction = union(InstructionTag) {
     Const: NodePtr,
     LocalVar: u32,
+    LocalVarIndirect: u32,
     LocalSet: u32,
     GVar: NodePtr,
     GSet: NodePtr,
     FreeVar: struct {u32, u32},
+    FreeVarIndirect: struct {u32, u32},
     FreeSet: struct{u32, u32},
+    Box: u32,
     Pop: i64,
     TJump :i64,
     FJump: i64,
@@ -87,11 +93,14 @@ pub const Instruction = union(InstructionTag) {
                  },
                 .Primitive => |p| std.debug.print("Primitive {s}\n", .{p.name}),
                 .LocalVar => |idx|   std.debug.print("Localvar {d}\n", .{idx}),
+                .LocalVarIndirect => |idx|   std.debug.print("LocalvarIndirect {d}\n", .{idx}),
                 .LocalSet => |idx|  std.debug.print("LocalSet {d}\n", .{idx}),
                 .GVar => |p|  std.debug.print("GVar {s}\n", .{p.cast(.atom).name}),
                 .GSet => |p|  std.debug.print("GSet {s}\n", .{p.cast(.atom).name}),
                 .FreeVar => |offset|   std.debug.print("FreeVar {d} {d}\n", .{offset.@"0", offset.@"1"}),
+                .FreeVarIndirect => |offset|   std.debug.print("FreeVarIndirect {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .FreeSet => |offset|  std.debug.print("FreeSet {d} {d}\n", .{offset.@"0", offset.@"1"}),
+                .Box => |idx|   std.debug.print("Box {d}\n", .{idx}),
                 .Shift => |x| std.debug.print("Shift n:{d} m:{d}\n", .{x.@"0", x.@"1"}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
                 .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
@@ -378,12 +387,26 @@ pub const VM = struct {
                        _ = try self.stack.pop();
                     }
                 },
+                .Box => |idx| {
+                    const value = self.stack.items[@intCast(self.frame + idx + 3)];
+                    try self.bldr.newList();
+                    try self.stack.push(value);
+                    try self.bldr.newPair();
+                    const box = try self.stack.pop();
+                    self.stack.items[@intCast(self.frame + idx + 3)] = box;
+                },
                 .LocalVar => |idx| {
                     const value = self.stack.items[@intCast(self.frame + idx + 3)];
                     try self.stack.push(value);
                 },
+                .LocalVarIndirect => |idx| {
+                    const box = self.stack.items[@intCast(self.frame + idx + 3)];
+                    const value = box.head();
+                    try self.stack.push(value);
+                },
                 .LocalSet => |idx| {
-                    self.stack.items[@intCast(self.frame + idx + 3)] = try self.stack.pop();
+                    var box = self.stack.items[@intCast(self.frame + idx + 3)];
+                    box.cast(.pair).fst = try self.stack.pop();
                 },
                 .GVar => |p| {
                     const name = (try p.tryCast(.atom)).name;
@@ -396,20 +419,17 @@ pub const VM = struct {
                     }
                 },
                 .FreeVar => |offset| {
-                    const value = getEnv(self.closure, offset.@"0" - 1, offset.@"1");
-                    if (value) |v| {
-                        try self.stack.push(v);
-                    } else {
-                        return error.UnknownName;
-                    }
+                    const v = getEnv(self.closure, offset.@"0" - 1, offset.@"1").?;
+                    try self.stack.push(v);
+                },
+                .FreeVarIndirect => |offset| {
+                    const box = getEnv(self.closure, offset.@"0" - 1, offset.@"1").?;
+                    const v = box.head();
+                    try self.stack.push(v);
                 },
                 .FreeSet => |offset| {
-                    const maybeRef = getEnvRef(self.closure, offset.@"0" - 1, offset.@"1");
-                    if (maybeRef) |ref| {
-                        ref.* = try self.stack.pop();
-                    } else {
-                        return error.UnknownName;
-                    }
+                    var box = getEnv(self.closure, offset.@"0" - 1, offset.@"1").?;
+                    box.cast(.pair).fst = try self.stack.pop();
                 },
                 .GSet => |p| {
                     const name = (try p.tryCast(.atom)).name;

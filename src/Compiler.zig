@@ -23,19 +23,19 @@ pub const LexicalCtx = struct {
 
     const Rib = struct {
        next: ?*Rib = null,
-       params: [][]const u8,
+       params: []Param,
     };
 
-    const Prams = struct {
+    const Param = struct {
         name: []const u8,
         isBoxed: bool = false,
     };
 
-    pub fn push(self: *LexicalCtx, arena: std.mem.Allocator, params: []const []const u8) void {
+    pub fn push(self: *LexicalCtx, arena: std.mem.Allocator, params: []const Param) void {
         const rib = arena.create(Rib) catch @panic("oom");
         rib.* = .{
             .next = self.rib,
-            .params = arena.dupe([]const u8, params) catch @panic("oom"),
+            .params = arena.dupe(Param, params) catch @panic("oom"),
         };
         self.rib = rib;
     }
@@ -52,7 +52,7 @@ pub const LexicalCtx = struct {
         var i:u16 = 0;
         while (rib) |r| {
             for (r.params, 0..) |p,j| {
-                if (std.mem.eql(u8, p, name)) {
+                if (std.mem.eql(u8, p.name, name)) {
                     return .{i, @intCast(j)};
                 }
             }
@@ -60,6 +60,22 @@ pub const LexicalCtx = struct {
             i += 1;
         }
         return null;
+    }
+
+    pub fn setBoxed(self: LexicalCtx, name: []const u8) void {
+        var rib = self.rib;
+        var i:u16 = 0;
+        while (rib) |r| {
+            for (r.params) |*p| {
+                if (std.mem.eql(u8, p.name, name)) {
+                    p.isBoxed = true;
+                    return;
+                }
+            }
+            rib = r.next;
+            i += 1;
+        }
+        return;
     }
 };
 
@@ -197,9 +213,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
                     const transformed = try self.runUserMacro(usermacro,  pair.snd);
-                    if (std.mem.eql(u8, "let--", name) or std.mem.eql(u8, "let", name)) {
-                        transformed.debugprint("expanded: ");
-                    }
+                    // if (std.mem.eql(u8, "let--", name) or std.mem.eql(u8, "let", name)) {
+                    //     transformed.debugprint("expanded: ");
+                    // }
                     // transformed.debugprint("... ");
                     try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
                     return;
@@ -210,8 +226,12 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
         .nil => {
                 return error.EmptyApplication;
         },
-        .intNumber, .floatNumber, .bool, .string, .vector => { // FIXME: shouldn't string and vector go to data?
+        .intNumber, .floatNumber, .bool => { // FIXME: shouldn't string and vector go to data?
             try buffer.append(self.arena, .{.Const = node});
+        },
+        .string, .vector => {
+            try buffer.append(self.arena, .{.Const = node});
+            try self.vm.data.append(self.allocator, node);
         },
         .atom => {
             const name = node.cast(.atom).name;
@@ -247,9 +267,9 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
             var xs = params;
             var i: usize = 0;
             numParams = @intCast(xs.len());
-            var buff = try self.arena.alloc([]const u8, numParams);
+            var buff = try self.arena.alloc(LexicalCtx.Param, numParams);
             while (xs.getId() != .nil) {
-                buff[i] = (try (try xs.tryHead()).tryCast(.atom)).name;
+                buff[i].name = (try (try xs.tryHead()).tryCast(.atom)).name;
                 i += 1;
                 xs = try xs.tryTail();
             }
@@ -259,17 +279,17 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
             numParams = @intCast(xs.len());
             varargs = true;
             var i: usize = 0;
-            var buff = try self.arena.alloc([]const u8, numParams);
+            var buff = try self.arena.alloc(LexicalCtx.Param, numParams);
             while (xs.getId() == .pair) {
-                buff[i] = (try (try xs.tryHead()).tryCast(.atom)).name;
+                buff[i].name = (try (try xs.tryHead()).tryCast(.atom)).name;
                 i += 1;
                 xs = try xs.tryTail();
             }
-            buff[numParams - 1] = (try xs.tryCast(.atom)).name;
+            buff[numParams - 1].name = (try xs.tryCast(.atom)).name;
             lexicalCtx.push(self.arena, buff[0..]);
         }
     } else if (params.getId() == .atom) {
-        lexicalCtx.push(self.arena, &.{params.cast(.atom).name});
+        lexicalCtx.push(self.arena, &.{.{. name = params.cast(.atom).name}});
         numParams = 1;
         varargs = true;
     } else {
@@ -289,10 +309,22 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
     // ok, it's good time to insert box commands... hmm, what about unbox?
     // now I need to expand macros again beforehand?
     // can't be bothered .. let's fix boxes afterwards
+    for (lexicalCtx.rib.?.params, 0..) |p,i| {
+        if (p.isBoxed) {
+            try lambdaBuff.insert(self.arena, 0, .{ .Box = @intCast(i) });
+        }
+    }
 
 
     const offset = self.vm.code.items.len;
     try self.vm.code.appendSlice(self.allocator, lambdaBuff.items);
+
+
+    for (lexicalCtx.rib.?.params, 0..) |p,i| {
+        if (p.isBoxed) {
+            self.fixUpLambda(offset, 0, i);
+        }
+    }
 
     // try self.vm.bldr.newEnv(numParams); // the environment is wrong, must create procedure in code..
     // try self.vm.bldr.newProc(@intCast(offset), varargs);
@@ -303,6 +335,33 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
         .parentNumArgs = @intCast(parentNumArgs) }} );
     lexicalCtx.pop();
     // return const lambda I suppose..
+}
+
+pub fn fixUpLambda(self: *Compiler, codeOffset:usize, level: usize, idx: usize) void {
+    var i = codeOffset;
+    loop: while (true) {
+        const instr = self.vm.code.items[i];
+        switch (instr) {
+            .LocalVar => |_idx| {
+                if (level == 0 and _idx == idx) {
+                    self.vm.code.items[i] = .{.LocalVarIndirect = _idx };
+                }
+            },
+            .FreeVar  => |offset| {
+                if (offset.@"0" == level and offset.@"1" == idx) {
+                    self.vm.code.items[i] = .{.FreeVarIndirect = offset };
+                }
+            },
+            .Fn  => |f| {
+                self.fixUpLambda(f.code, level+1, idx);
+            },
+            .Return => {
+                break :loop;
+            },
+            else => {},
+        }
+        i+=1;
+    }
 }
 
 pub fn genIf(self: *Compiler, cond: NodePtr, branch0: NodePtr, branch1: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx, isTailCall: bool) anyerror!void {
@@ -400,6 +459,7 @@ pub fn genSet(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.Ar
            try buffer.append(self.arena, .{ .Const = _void });
            // try buffer.append(self.arena, .{ .FreeVar = pos } );
         }
+        lexicalCtx.setBoxed(name);
     } else {
         try buffer.append(self.arena, .{ .GSet = nameNode });
         try buffer.append(self.arena, .{ .Const = _void });
