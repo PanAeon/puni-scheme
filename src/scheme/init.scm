@@ -101,7 +101,9 @@
 (define (set-cdr! a b) (set-cdr! a b))
 (define (apply a b) (apply a b))
 
-
+(define (f return)
+  (return 2)
+  3)
 
 ;; and how to mark currently executed lambda in GC? (it shoould be in stack!)
 ;; ((lambda (x . xs) xs) 3 4 5)
@@ -377,14 +379,21 @@
       (set! gensym-id (+ 1 i))
       (string->atom (string-append "gensym-" (number->string i))))))
 
+;; (do ((〈variable1〉 〈init1〉 〈step1〉) syntax
+;; . . . )
+;; (〈test〉 〈expression〉 . . . )
+;; 〈command〉 . . . )
+;; (define-macro (do . xs)) 
+
+;; (define (or . xs) 
+;;     (let ((x (gensym)))
+;;         (cond [(null? xs) #f]
+;;               [(null? (tail xs)) (head xs)]
+              ;; [else 
+              ;;   `(let ((,x ,(head xs))) (if ,x ,x (or ,@(tail xs))) )])))
 
 
-(define (or . xs) 
-    (let ((x (gensym)))
-        (cond [(null? xs) #f]
-              [(null? (tail xs)) (head xs)]
-              [else 
-                `(let ((,x ,(head xs))) (if ,x ,x (or ,@(tail xs))) )])))
+;; (define-macro (
  ;; (let ((x 5)) 
  ;;   (letrec* ((foo (lambda (y ) (bar x y ) ) ) 
  ;;             (bar (lambda (a b ) (+ (* a b ) a ) ) ) ) 

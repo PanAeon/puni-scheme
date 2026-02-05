@@ -61,6 +61,17 @@ pub const Parser = struct {
                 const n = try std.fmt.parseFloat(f32, self.token.slice(self.lexer.yyinput));
                 try self.vm.bldr.newFloatNumber(n);
             },
+            .character => {
+                const c =  self.token.slice(self.lexer.yyinput);
+                // std.debug.print("{s}\n", .{c});
+                if (std.mem.eql(u8, "#\\newline", c )) {
+                   try self.vm.bldr.newChar(10);
+                } else if (std.mem.eql(u8, "#\\space", c )) {
+                   try self.vm.bldr.newChar(32);
+                } else {
+                   try self.vm.bldr.newChar(c[2]);
+                }
+            },
             .string => {
                 const slice = self.token.slice(self.lexer.yyinput);
                 var buff = try self.arena.alloc(u8, slice.len);

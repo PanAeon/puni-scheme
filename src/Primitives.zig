@@ -582,13 +582,40 @@ pub fn _cc(vm: *VM) anyerror!void {
 
 // return closure that when called returns stack to this position..
 pub fn _callcc(vm: *VM) anyerror!void {
-    _ = &vm;
+    const returnAddr = vm.ip + 1;
+    // const f = try vm.stack.pop();
+    // vm.protect(f);
+    // vm.printStack();
+    const stackLen = vm.stack.size - 1;
+    try vm.bldr.newList();
+    try vm.bldr.newVector(stackLen, false);
+    const vec = (try vm.stack.head()).cast(.vector);
+    for (0..stackLen) |i| {
+        vec.xs[i] = vm.stack.items[i];
+    }
+    try vm.bldr.appendToList();
+    try vm.stack.push(vm.closure);
+    try vm.bldr.appendToList();
+    try vm.bldr.newIntNumber(@intCast(vm.frame));
+    try vm.bldr.appendToList();
+    try vm.bldr.newIntNumber(@intCast(returnAddr));
+    try vm.bldr.appendToList();
+
+    // try vm.createProcedure(.{.code = 0, .numArgs = 1, .parentNumArgs = 1, .varargs = false});
+
+    try vm.bldr.newEnv(1, true);
+    try vm.bldr.newProc(vm.ccCodeLoc, false, 1);
+    try vm.bldr.newList();
+    try vm.bldr.appendToListRev();
+    // try vm.stack.push(f);
+    try _apply(vm);
 // (SET-CC (setf stack (top stack)))
 //          (CC     (push (make-fn
 //                          :env (list (vector stack))
 //                          :code '((ARGS 1) (LVAR 1 0 ";" stack) (SET-CC)
 //                                  (LVAR 0 0) (RETURN)))
 //                        stack))
+   // now we need to call f..
     
 }
 
@@ -615,6 +642,8 @@ pub const @"string?": Prim = .{.name = "string?", .exec = isString,  .numArgs = 
 pub const @"real?": Prim = .{.name = "real?", .exec = isReal,  .numArgs = 1};
 pub const not: Prim = .{.name = "not", .exec = _not,  .numArgs = 1};
 pub const inspect: Prim = .{.name = "inspect", .exec = _inspect,  .numArgs = 1};
+
+pub const @"call/cc": Prim = .{.name = "call/cc", .exec = _callcc,  .numArgs = 1};
 
 
 pub const display: Prim = .{.name = "display", .exec = _display,  .numArgs = 1};

@@ -226,7 +226,7 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
         .nil => {
                 return error.EmptyApplication;
         },
-        .intNumber, .floatNumber, .bool => { // FIXME: shouldn't string and vector go to data?
+        .intNumber, .floatNumber, .bool, .char => { // FIXME: shouldn't string and vector go to data?
             try buffer.append(self.arena, .{.Const = node});
         },
         .string, .vector => {

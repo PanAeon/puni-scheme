@@ -34,13 +34,13 @@ pub const NodePtr = struct {
         floatNumber,
         string,
         bool,
-        // primitive,
         procedure,
         pair,
         nil,
         vector,
         void,
         currentCont,
+        char,
 
         pub fn Type(comptime id: Id) type {
             return switch (id) {
@@ -49,13 +49,13 @@ pub const NodePtr = struct {
                 .floatNumber => @panic("error"),
                 .string => Node.String,
                 .bool => @panic("error"),
-                // .primitive => Node.Primitive,
                 .procedure => Node.Procedure,
                 .vector => Node.Vector,
                 .pair => Node.Pair,
                 .nil => Node.Nil,
                 .void => Node,
                 .currentCont => Node.CurrentCont,
+                .char => @panic("error"),
             };
         }
     };
@@ -127,6 +127,19 @@ pub const NodePtr = struct {
             return error.IllegalArgument;
         }
         return @bitCast(@as(u48, @truncate(self.ptr & IntMask)));
+    }
+    pub fn getCharValue(self: *const NodePtr) u8 {
+        if (self.getId() != .char) {
+            std.debug.panic("can't get intvalue from: {}", .{self.getId()});
+        }
+        return @bitCast(@as(u8, @truncate(self.ptr & IntMask)));
+    }
+    pub fn tryCharIntValue(self: *const NodePtr) anyerror!u8 {
+        if (self.getId() != .char) {
+            std.debug.print("is not int: {}", .{self.getId()});
+            return error.IllegalArgument;
+        }
+        return @bitCast(@as(u8, @truncate(self.ptr & IntMask)));
     }
 
     pub fn getFloatValue(self: *const NodePtr) f32 {
@@ -272,6 +285,16 @@ pub const NodePtr = struct {
             },
             .floatNumber => {
                 std.debug.print("{d} ", .{n.getFloatValue()});
+            },
+            .char => {
+                const v = n.getCharValue();
+                if (v == 10) {
+                   std.debug.print("#\\newline ", .{});
+                } else if (v == 32) {
+                   std.debug.print("#\\space ", .{});
+                } else {
+                   std.debug.print("{c} ", .{v});
+                }
             },
             // .primitive => {
             //     const p = n.cast(.primitive);
@@ -542,6 +565,9 @@ pub const NodeBuilder = struct {
     }
     pub fn newFloatNumber(self: *NodeBuilder, n: f32) !void {
         try self.vm.stack.push(NodePtr.initU64(@as(u32, @bitCast(n)), .{ .id = .floatNumber }));
+    }
+    pub fn newChar(self: *NodeBuilder, n: u8) !void {
+        try self.vm.stack.push(NodePtr.initU64(n, .{ .id = .char }));
     }
     pub fn newBool(self: *NodeBuilder, b: bool) !void {
         if (b) {

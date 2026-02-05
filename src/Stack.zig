@@ -30,7 +30,8 @@ pub fn Stack(comptime T: type) type {
         }
         pub fn pop(self: *Self) !T {
             if (self.size == 0) {
-                return error.StackUnderflow;
+                @panic("underflow");
+                // return error.StackUnderflow;
             }
             self.size -= 1;
             return self.items[self.size];

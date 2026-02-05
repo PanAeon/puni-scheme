@@ -47,6 +47,8 @@ const InstructionTag = enum {
     Fn,
     Primitive,
     MSet,
+    CreateCC,
+    CC,
     Halt
 };
 pub const Instruction = union(InstructionTag) {
@@ -71,6 +73,8 @@ pub const Instruction = union(InstructionTag) {
     Fn: Function, // create closure from arg and current env, push result on the stack
     Primitive: *const Prim,
     MSet: NodePtr,
+    CreateCC,
+    CC,
     Halt,
 
     const Function = struct {
@@ -107,6 +111,8 @@ pub const Instruction = union(InstructionTag) {
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => |n| std.debug.print("Pop {d}\n", .{n}),
                 .MSet => |p|  std.debug.print("MSet {any}\n", .{p}),
+                .CreateCC =>  std.debug.print("CreateCC", .{}),
+                .CC =>  std.debug.print("CC", .{}),
                 .Return => |n| std.debug.print("Return {d}\n", .{n}),
         }
     }
@@ -139,6 +145,7 @@ pub const VM = struct {
     verboseGC: bool = true,
     stats: Stats = .{},
     bldr: NodeBuilder,
+    ccCodeLoc: u32 = 0,
 
 
     
@@ -148,6 +155,16 @@ pub const VM = struct {
         startTime: std.time.Instant = undefined,
         gcTime: u64 = 0,
     };
+
+    pub fn createCC(self:*VM) anyerror!void {
+        try self.code.append(self.allocator,  .{ .FreeVar = .{1, 0} }  );
+        try self.code.append(self.allocator,  .{ .LocalVar = 0 }  );
+        try self.code.append(self.allocator,  .CC  );
+        try self.code.append(self.allocator, .{ .Return = 1 });
+
+//                          :code '((ARGS 1) (LVAR 1 0 ";" stack) (SET-CC)
+//                                  (LVAR 0 0) (RETURN)))
+    }
 
     pub fn init(allocator: std.mem.Allocator, verboseGC: bool) !*VM {
         const vm = try allocator.create(VM);
@@ -166,6 +183,7 @@ pub const VM = struct {
             .bldr = NodeBuilder.init(vm, allocator),
         };
         vm.stats.startTime = try std.time.Instant.now();
+        vm.createCC() catch @panic("can't create cc");
         return vm;
     }
     pub fn destroy(self: *VM) void {
@@ -228,7 +246,7 @@ pub const VM = struct {
         }
         node.raw().marked = true;
         switch (id) {
-            .bool, .string, .atom, .intNumber, .floatNumber, .nil, .void => {},
+            .bool, .string, .atom, .intNumber, .floatNumber, .char, .nil, .void => {},
             .procedure => {
                 const p = node.cast(.procedure);
                 // mark(p.args);
@@ -326,7 +344,7 @@ pub const VM = struct {
                         const p = unreached.cast(.procedure);
                         self.allocator.destroy(p);
                     },
-                    .nil, .void, .intNumber, .floatNumber, .bool => {},
+                    .nil, .void, .intNumber, .floatNumber, .bool, .char => {},
                 }
                 self.numObjects -= 1;
             } else {
@@ -477,8 +495,43 @@ pub const VM = struct {
                     const name = (try p.tryCast(.atom)).name;
                     try self.macroMap.put(name, try self.stack.pop());
                 },
+                .CreateCC => {
+                    @panic("not impl");
+                    // const stackLen = self.stack.size;
+                    // try self.bldr.newList();
+                    // try self.bldr.newVector(stackLen, false);
+                    // const vec = (try self.stack.head()).cast(.vector);
+                    // for (0..stackLen) |i| {
+                    //     vec.xs[i] = self.stack.items[i];
+                    // }
+                    // try self.bldr.appendToList();
+                    // try self.stack.push(self.closure);
+                    // try self.bldr.appendToList();
+                    // try self.bldr.newIntNumber(@intCast(self.frame));
+                    // try self.bldr.appendToList();
+                },
+                .CC => {
+                    const v = try self.stack.pop();
+                    const c = try self.stack.pop();
+                    const ret = c.head();
+                    const frame = try c.second();
+                    const closure = try c.third();
+                    // self.frame = c.head().getIntValue();
+                    // self.closure = try c.second();
+                    const st = (try c.fourth()).cast(.vector).xs;
+                    self.stack.size = st.len;
+                    for (0..st.len) |i| {
+                        self.stack.items[i] = st[i];
+                    }
+                    try self.stack.push(frame);
+                    try self.stack.push(closure);
+                    try self.stack.push(ret);
+                    try self.stack.push(c); // 1 arg to drop;
+                    try self.stack.push(v);
+                },
                 .Return => |n| {
                     const value = try self.stack.pop();
+                    // value.debugprint("return value");
 
                     for (0..@intCast(n)) |_| { // drop N args..
                        _ = try self.stack.pop();
