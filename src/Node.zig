@@ -39,8 +39,9 @@ pub const NodePtr = struct {
         nil,
         vector,
         void,
-        currentCont,
+        // currentCont,
         char,
+        resource,
 
         pub fn Type(comptime id: Id) type {
             return switch (id) {
@@ -54,7 +55,8 @@ pub const NodePtr = struct {
                 .pair => Node.Pair,
                 .nil => Node.Nil,
                 .void => Node,
-                .currentCont => Node.CurrentCont,
+                // .currentCont => Node.CurrentCont,
+                .resource => Node.Resource,
                 .char => @panic("error"),
             };
         }
@@ -277,9 +279,12 @@ pub const NodePtr = struct {
                 std.debug.print("() ", .{});
             },
             .void => {},
-            .currentCont => {
-                std.debug.print("<continuation>", .{});
+            .resource => {
+                std.debug.print("resource\n", .{});
             },
+            // .currentCont => {
+            //     std.debug.print("<continuation>", .{});
+            // },
             .intNumber => {
                 std.debug.print("{d} ", .{n.getIntValue()});
             },
@@ -459,9 +464,31 @@ pub const Node = struct {
         base: Node = .{},
     };
 
-    pub const CurrentCont = struct {
+    pub const Resource = struct {
         base: Node = .{},
-        stack: []NodePtr,
+        resourceType: ResourceType,
+        metadata: NodePtr,
+        closed: bool = false,
+        ptr: *anyopaque,
+
+        pub const ResourceType = enum {
+            stdout
+        };
+
+        pub const Stdout = struct {
+            io: std.Io,
+            buffer: [2048]u8,
+            writer: std.Io.File.Writer,
+        };
+
+        pub fn finalize(self: Resource, allocator: std.mem.Allocator) void {
+            _ = &allocator;
+            switch (self.resourceType) {
+                .stdout => {
+                    allocator.destroy(@as(*Stdout, @alignCast(@ptrCast(self.ptr))));
+                },
+            }
+        }
     };
 };
 
@@ -590,6 +617,24 @@ pub const NodeBuilder = struct {
         try self.vm.stack.push(ptr);
     }
 
+    pub fn newResource(self: *NodeBuilder, metadata: ?NodePtr, resourceType: Node.Resource.ResourceType, pointer: *anyopaque) void {
+        if (self.vm.numObjects >= self.vm.maxObjects) {
+            self.vm.gc();
+        }
+        self.vm.stats.numAllocs +%= 1;
+        const r = try self.allocator.create(Node.Resource);
+        r.* = .{
+            .metadata = if (metadata) |m| m else _void,
+            .resourceType = resourceType,
+            .ptr = pointer,
+        };
+        r.base.next = self.vm.lastNode;
+        const ptr = NodePtr.init(&r.base, .{ .id = .primitive });
+        self.vm.lastNode = ptr;
+        self.vm.numObjects += 1;
+        try self.vm.stack.push(ptr);
+    }
+
     // last item on the top of the stack
     pub fn newVector(self: *NodeBuilder, n: usize, populate: bool) !void {
         if (self.vm.numObjects >= self.vm.maxObjects) {
@@ -606,7 +651,7 @@ pub const NodeBuilder = struct {
             }
         } else {
             for (0..n) |i| {
-               l.xs[i] = _void;
+               l.xs[i] = _false;
             }
         }
         l.base.next = self.vm.lastNode;
@@ -626,28 +671,6 @@ pub const NodeBuilder = struct {
         try self.appendToListRev();
         // self.vm.env = try self.vm.stack.pop();
     }
-    // pub fn appendToLastEnv(self: *NodeBuilder) !void {
-    //     const name = (try self.vm.stack.nth(1));
-    //     // const values = (try self.stack.nth(0));
-    //     if (name.getId() != .atom) {
-    //         std.debug.print("appendToLast  names broken", .{});
-    //         return error.IllegalArgument;
-    //     }
-    //     // if (values.getId() != .pair and values.getId() != .nil) {
-    //     //     std.debug.print("appendToLast values broken", .{});
-    //     //     return error.IllegalArgument;
-    //     // }
-    //     // (try self.stack.nth(1)).debugprint("names");
-    //     // (try self.stack.nth(0)).debugprint("values");
-    //     const lastEnv = self.vm.env.head(); // this is two lists ((names...)(data...))
-    //     try self.vm.stack.push(lastEnv.tail().head());
-    //     try self.appendToListRev();
-    //     lastEnv.tail().cast(.pair).fst = try self.vm.stack.pop();
-    //
-    //     try self.vm.stack.push(lastEnv.head());
-    //     try self.appendToListRev();
-    //     lastEnv.cast(.pair).fst = try self.vm.stack.pop();
-    // }
 
 
     pub fn mkProperList(self: *NodeBuilder) !void {
@@ -665,23 +688,6 @@ pub const NodeBuilder = struct {
         try self.reverseList();
     }
 
-    pub fn newCurrentCont(self: *NodeBuilder) anyerror!void {
-        if (self.vm.numObjects >= self.vm.maxObjects) {
-            self.vm.gc();
-        }
-        self.vm.stats.numAllocs +%= 1;
-        const cc = try self.allocator.create(Node.CurrentCont);
-        const stack = try self.allocator.alloc(NodePtr, self.vm.stack.size);
-        for (0..self.vm.stack.size) |i| stack[i] = self.vm.stack.items[i];
-        cc.* = .{
-            .stack = stack,
-        };
-        cc.base.next = self.vm.lastNode;
-        const ptr = NodePtr.init(&cc.base, .{ .id = .currentCont });
-        self.vm.lastNode = ptr;
-        self.vm.numObjects += 1;
-        try self.vm.stack.push(ptr);
-    }
 
     pub fn reverseList(self: *NodeBuilder) anyerror!void {
         var n: usize = 0;

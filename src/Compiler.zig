@@ -246,7 +246,7 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                 try buffer.append(self.arena, .{ .GVar = node });
             }
         },
-        .void, .procedure, .currentCont => {
+        .void, .procedure, .resource => {
             @panic("unreachable");
         }
     }

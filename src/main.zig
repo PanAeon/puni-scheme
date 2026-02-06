@@ -20,7 +20,6 @@ const Compiler = @import("Compiler.zig");
 const VMError = error{ ExpectedList, StackOverflow, StackUnderflow, UnknownName, IllegalDefine, MultipleExprsAfterId, NotAList, NotCallable, ArityMismatch, NotExhastiveMatch, IllegalArgument, AssignmentDisallowed, InvalidSyntaxDefinition, NotImplemented, UserError, ArgsTooLong, MissingElseBranch };
 
 pub const MaxStack: usize = 1024;
-pub const MaxReturnStack: usize = 1024;
 pub const MaxProtectStack: usize = 1024;
 pub const InitialGCThreshold: usize = 8; // 8
 
@@ -47,7 +46,6 @@ const InstructionTag = enum {
     Fn,
     Primitive,
     MSet,
-    CreateCC,
     CC,
     Halt
 };
@@ -73,7 +71,6 @@ pub const Instruction = union(InstructionTag) {
     Fn: Function, // create closure from arg and current env, push result on the stack
     Primitive: *const Prim,
     MSet: NodePtr,
-    CreateCC,
     CC,
     Halt,
 
@@ -111,7 +108,6 @@ pub const Instruction = union(InstructionTag) {
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => |n| std.debug.print("Pop {d}\n", .{n}),
                 .MSet => |p|  std.debug.print("MSet {any}\n", .{p}),
-                .CreateCC =>  std.debug.print("CreateCC", .{}),
                 .CC =>  std.debug.print("CC", .{}),
                 .Return => |n| std.debug.print("Return {d}\n", .{n}),
         }
@@ -161,9 +157,6 @@ pub const VM = struct {
         try self.code.append(self.allocator,  .{ .LocalVar = 0 }  );
         try self.code.append(self.allocator,  .CC  );
         try self.code.append(self.allocator, .{ .Return = 1 });
-
-//                          :code '((ARGS 1) (LVAR 1 0 ";" stack) (SET-CC)
-//                                  (LVAR 0 0) (RETURN)))
     }
 
     pub fn init(allocator: std.mem.Allocator, verboseGC: bool) !*VM {
@@ -241,7 +234,7 @@ pub const VM = struct {
     }
     pub fn mark(node: NodePtr) void {
         const id = node.getId();
-        if (id == .intNumber or id == .floatNumber or id == .bool or id == .nil or id == .void or node.raw().marked) {
+        if (id == .intNumber or id == .floatNumber or id == .bool or id == .char or id == .nil or id == .void or node.raw().marked) {
             return;
         }
         node.raw().marked = true;
@@ -267,12 +260,9 @@ pub const VM = struct {
                 mark(p.fst);
                 mark(p.snd);
             },
-            .currentCont => {
-                const c = node.cast(.currentCont);
-                for (c.stack) |x| {
-                    mark(x);
-                }
-                // mark(c.node);
+            .resource => {
+                const c = node.cast(.resource);
+                mark(c.metadata);
             },
         }
     }
@@ -335,9 +325,9 @@ pub const VM = struct {
                         self.allocator.free(l.xs);
                         self.allocator.destroy(l);
                     },
-                    .currentCont => {
-                        const c = unreached.cast(.currentCont);
-                        self.allocator.free(c.stack);
+                    .resource => {
+                        const c = unreached.cast(.resource);
+                        c.finalize(self.allocator);
                         self.allocator.destroy(c);
                     },
                     .procedure => {
@@ -460,55 +450,17 @@ pub const VM = struct {
                 },
                 .Fn   => |x| {
                     try self.createProcedure(x);
-                    // try self.bldr.newProc(x.@"0");
                 },
                 .Save => |offset| {
-                    try self.bldr.newIntNumber(@intCast(self.frame));
-                    try self.stack.push(self.closure);
-                    try self.bldr.newIntNumber(@intCast(self.ip + offset)); // push return value to the stack
+                    try self.save(offset);
                 },
                 .JCall => |numArgs| {
-                    const _f = try self.stack.pop();
-                    self.protect(_f);
-                    const f = try _f.tryCast(.procedure);
-                    // std.debug.print("stack size: {d}\n", .{self.stack.size});
-                    self.frame = @intCast(self.stack.size - numArgs - 3);
-                    if (f.varargs) { // TODO: think about varargs..
-                        if (numArgs + 1 < f.numArgs) {
-                            return error.ArityMismatch;
-                        }
-                        const numLast = numArgs + 1 - f.numArgs ;
-                        try self.bldr.newList();
-                        for (0..numLast) |_| {
-                            try self.bldr.appendToListRev();
-                        }
-                    } else {
-                        if (f.numArgs != numArgs) {
-                            return error.ArityMismatch;
-                        }
-                    }
-                    self.closure = f.env;
-                    self.ip = @as(i64, @intCast(f.code)) - 1;
+                    try self.jcall(numArgs);
                 },
 
                 .MSet => |p| {
                     const name = (try p.tryCast(.atom)).name;
                     try self.macroMap.put(name, try self.stack.pop());
-                },
-                .CreateCC => {
-                    @panic("not impl");
-                    // const stackLen = self.stack.size;
-                    // try self.bldr.newList();
-                    // try self.bldr.newVector(stackLen, false);
-                    // const vec = (try self.stack.head()).cast(.vector);
-                    // for (0..stackLen) |i| {
-                    //     vec.xs[i] = self.stack.items[i];
-                    // }
-                    // try self.bldr.appendToList();
-                    // try self.stack.push(self.closure);
-                    // try self.bldr.appendToList();
-                    // try self.bldr.newIntNumber(@intCast(self.frame));
-                    // try self.bldr.appendToList();
                 },
                 .CC => {
                     const v = try self.stack.pop();
@@ -516,8 +468,6 @@ pub const VM = struct {
                     const ret = c.head();
                     const frame = try c.second();
                     const closure = try c.third();
-                    // self.frame = c.head().getIntValue();
-                    // self.closure = try c.second();
                     const st = (try c.fourth()).cast(.vector).xs;
                     self.stack.size = st.len;
                     for (0..st.len) |i| {
@@ -544,6 +494,36 @@ pub const VM = struct {
                 },
             }
         }
+    }
+
+    pub fn save(self: *VM, offset: i64) anyerror!void {
+        try self.bldr.newIntNumber(@intCast(self.frame));
+        try self.stack.push(self.closure);
+        try self.bldr.newIntNumber(@intCast(self.ip + offset)); // push return value to the stack
+    }
+
+    pub fn jcall(self:*VM, numArgs: u32) anyerror!void {
+                    const _f = try self.stack.pop();
+                    self.protect(_f);
+                    const f = try _f.tryCast(.procedure);
+                    // std.debug.print("stack size: {d}\n", .{self.stack.size});
+                    self.frame = @intCast(self.stack.size - numArgs - 3);
+                    if (f.varargs) { // TODO: think about varargs..
+                        if (numArgs + 1 < f.numArgs) {
+                            return error.ArityMismatch;
+                        }
+                        const numLast = numArgs + 1 - f.numArgs ;
+                        try self.bldr.newList();
+                        for (0..numLast) |_| {
+                            try self.bldr.appendToListRev();
+                        }
+                    } else {
+                        if (f.numArgs != numArgs) {
+                            return error.ArityMismatch;
+                        }
+                    }
+                    self.closure = f.env;
+                    self.ip = @as(i64, @intCast(f.code)) - 1;
     }
 
     pub fn createProcedure(self: *VM, f: Instruction.Function) anyerror!void {
@@ -709,6 +689,7 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const file = try std.Io.Dir.cwd().openFile(threaded.io(), "scheme/init.scm", .{});
+        defer file.close(threaded.io());
         var buffer: [128*1024]u8 = undefined;
         const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
         buffer[len] = 0;

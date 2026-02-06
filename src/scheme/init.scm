@@ -25,6 +25,9 @@
 ;; - https://github.com/mkirchner/hamt (c)
 ;; also clojure and scala have hamt dictionaries
 ;; https://blog.higher-order.net/2009/09/08/understanding-clojures-persistenthashmap-deftwice.html
+
+(define (call-with-current-continuation f) (call/cc f))
+(define (call/cc f) (call/cc f))
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
 (define (cdar x) (cdr (car x)))
@@ -89,7 +92,7 @@
 (define (car a ) (car a ))
 (define (cdr a ) (cdr a ))
 (define (number->string a ) (number->string a ))
-(define (string->atom a ) (string->atom a ))
+(define (string->symbol a ) (string->symbol a ))
 (define (string-append a ) (string-append a ))
 
 
@@ -101,9 +104,7 @@
 (define (set-cdr! a b) (set-cdr! a b))
 (define (apply a b) (apply a b))
 
-(define (f return)
-  (return 2)
-  3)
+
 
 ;; and how to mark currently executed lambda in GC? (it shoould be in stack!)
 ;; ((lambda (x . xs) xs) 3 4 5)
@@ -139,7 +140,6 @@
 (define (first x) (car x))
 (define (second x) (car (cdr x)))
 (define (third x) (car (cdr (cdr x))))
-(define (third1 x) (head (tail (tail x))))
 (define (head x) (car x))
 (define (tail x) (cdr x))
 (define (rest x) (cdr x))
@@ -156,13 +156,6 @@
         (if (null? xs) '()
             (if (null? (tail xs)) (head xs)
             (append2 (head xs) (apply append (tail xs))))))
-;;
-
-(define (map0 f lst) '())
-;; (define (map1 f lst) ; panic incorrect pos 1
-;;     (cons (f (car lst)) (cdr lst)))
-(define (map1 f lst) ; panic incorrect pos 1
-    (begin (f 3) (cdr lst)))
 
 (define (map f lst)
   (cond
@@ -220,6 +213,9 @@
 (define (add1 x) (+ 1 x))
 (define (sub1 x) (- x 1))
 (define list (lambda x x))
+
+(define (list-ref xs i) 
+  (if (zero? i) (head xs) (list-ref (tail xs) (- i 1))))
 ;;
 ;;
 ;;
@@ -377,13 +373,51 @@
   (let ((i gensym-id))
     (begin 
       (set! gensym-id (+ 1 i))
-      (string->atom (string-append "gensym-" (number->string i))))))
+      (string->symbol (string-append "gensym-" (number->string i))))))
+
+;; fixme: looks like cc should accept N arguments
+(define (values . things)
+   (call-with-current-continuation
+       (lambda (cont) (apply cont things))))
+;; it's working!!!
+;; (let* ((yin
+;;          ((lambda (cc) (display #\@) cc) (call/cc (lambda (c) c))))
+;;        (yang
+;;          ((lambda (cc) (display #\*) cc) (call/cc (lambda (c) c)))))
+    ;; (yin yang))
 
 ;; (do ((〈variable1〉 〈init1〉 〈step1〉) syntax
 ;; . . . )
 ;; (〈test〉 〈expression〉 . . . )
 ;; 〈command〉 . . . )
-;; (define-macro (do . xs)) 
+;; (define-macro (do init test . cmds)) 
+
+
+;; (define-syntax do
+;; (syntax-rules ()
+;; ((do ((var init step ...) ...)
+;; (test expr ...)
+;; command ...)
+;; (letrec
+;; ((loop
+;; (lambda (var ...)
+;; (if test
+;; (begin
+;; (if #f #f)
+;; expr ...)
+;; (begin
+;; command
+;; ...
+;; (loop (do "step" var step ...)
+;; ...))))))
+;; (loop init ...)))
+;; ((do "step" x)
+;; x)
+;; ((do "step" x y)
+;; y)))
+
+;; (define (simple-do) 
+;;   (letrec* ))
 
 ;; (define (or . xs) 
 ;;     (let ((x (gensym)))
@@ -540,36 +574,7 @@
 ;; ;; ;;; --------------------------------------------------
 ;; ;; ;; 
 ;; ;;
-;; ;; (define (expand-macro expr)
-;; ;;     (define hasExpanded #f)
-;; ;;     (define (em-iter x)
-;; ;;         (cond 
-;; ;;             [(and (pair? x) (equal? 'quasiquote (head x))) x]
-;; ;;             [(and (pair? x) (macro? (head x))) (begin (set! hasExpanded #t) (expand (head x) (tail x)))]
-;; ;;             [(pair? x) (map em-iter x)]
-;; ;;             [else x]))
-;; ;;     (list (em-iter expr) hasExpanded))
-;; ;;     ;; (list (list 'quote (em-iter expr)) hasExpanded))
 ;; ;;
-;; ;; (define (expand-macro-rec expr)
-;; ;;   (let ((res (expand-macro expr)))
-;; ;;     (if (head (tail res)) (expand-macro-rec  (head res)) (head res))))
-;; ;; ;; (define (expand-macro-rec expr)
-;; ;; ;;   (let ((res (expand-macro expr)))
-;; ;; ;;     (if (head (tail res)) (expand-macro-rec (head (tail (head res)))) (head res))))
-;; ;; ;; (expand-macro (body mylambda))
-;; ;; ;; (arg1 arg2 ...) => ({current} {next})
-;; ;; ;;                    (((arg1 (1 1) (arg2 (1 2)) ...)) {next})
-;; ;; ;; then lookup-arg param-map name => (pos, level) => add level to pos...
-;; ;;
-;; ;; (define (lookup-arg param-map name lvl)
-;; ;;   (if (null? param-map) '() 
-;; ;;     (let ((maybeIdx (assoc name (head param-map) )))
-;; ;;       (if (not maybeIdx) 
-;; ;;          (lookup-arg (tail param-map) name (+ 1 lvl)) 
-;; ;;          (list lvl (tail maybeIdx))  ))))
-;; ;;
-;; ;; (define sample-map '(((a 0) (b 1)) ((c 0))))
 ;; ;;
 ;; ;; (define (enumerate xs)
 ;; ;;   (define (enum-inner i xs)
@@ -679,8 +684,6 @@
 ;; ;; ;;       [(cons lst '()) lst]
 ;; ;; ;;       [(cons fst rst) (last-item rst)]))
 ;; ;;
-;; ;; (define (optimize proc) 
-;; ;;   (set-body proc (do-lexical-scoping proc)))
 ;; ;;
 ;; ;;
 ;; ;; (define (foreach f lst)
@@ -769,38 +772,19 @@
 ;; ;;     (display tmp)
 ;; ;;     (newline)))
 ;;
-;; ;; ;; (define-macro (when test . body)
-;; ;; ;;   `(if ,test 
-;; ;; ;;        (begin
-;; ;; ;;          ,@body) (begin)))
+(define-macro (when test . body)
+  `(if ,test 
+       (begin
+         ,@body) (begin)))
+
+(define-macro (unless test . branch)
+    (list 'if
+          (list 'not test)
+          (cons 'begin branch)))
 ;; ;; ;;
-;; ;; ;; (when (zero? 0) (display "x"))
+;; (when (zero? 0) (display "x"))
 ;; ;; ;; (if ((zero? x ) ) (begin ((display "x" ) (display " = " ) (display "zero" ) (newline ) ) ) )
-;; ;; ;;; -------------------------------------------
-;; ;; ;; (define __transform 
-;; ;; ;;   (lambda () 
-;; ;; ;;     (foreach patterns if matches syntax then return template)))
-;; ;; ;;
-;; ;; ;; (define-syntax while
-;; ;; ;;   (syntax-rules (=> ? )
-;; ;; ;;     ((while condition body ...) <template>)
-;; ;; ;;     ((while condition body ...) <template1>)))
-;; ;; ;;
-;; ;; ;; (define-syntax while
-;; ;; ;;   (syntax-rules ()
-;; ;; ;;     ((while condition body ...)
-;; ;; ;;      (let loop ()
-;; ;; ;;        (if condition
-;; ;; ;;            (begin
-;; ;; ;;              body ...
-;; ;; ;;              (loop))
-;; ;; ;;            #f)))))
-;; ;; ;;; -------------------------------------------
 ;; ;;
-;; ;;
-;; ;;
-;; ;; ;; (define (call/cc x) (call/cc x))
-;; ;; ;; (define (call-with-current-continuation x) (call/cc x))
 ;; ;;
 ;; ;;
 ;; ;; (define (my-length lst)
@@ -827,10 +811,10 @@
 ;; ;;
 ;; ;; ;(append '(1 2 3) '(4 5 6))
 ;; ;; ;; (+ 2 3 4 5)
-;; ;; (define (length xs)
-;; ;;         (if (null? xs) 0
-;; ;;             (+ 1 (length (cdr xs)))))
-;; ;;
+(define (length xs)
+        (if (null? xs) 0
+            (+ 1 (length (cdr xs)))))
+
 ;; ;; (define (member? x list)
 ;; ;;      (if (null? list) #f                                ;(1)
 ;; ;;          (if (equal? x (car list)) #t                   ;(2)
@@ -855,17 +839,14 @@
 ;; ;; (remove-dups (list "a" "b" "b" "b" "c" "c"))
 ;; ;;
 ;; ;;
-;; ;;      ; (define retry #f)
-;; ;;      ; (define factorial
-;; ;;      ;   (lambda (x)
-;; ;;      ;     (if (zero? x)
-;; ;;      ;         (call/cc (lambda (k) (set! retry k) 1))
-;; ;;      ;         (* x (factorial (- x 1))))))
-;; ;;      ; (define (factorial x)
-;; ;;      ;     (if (zero? x)
-;; ;;      ;         (call/cc (lambda (k) (set! retry k) 1))
-;; ;;      ;         (* x (factorial (- x 1)))))
-;; ;;      ; (factorial 5)
+      ;;
+      ;; (define retry #f)
+      ;; (define (factorial x)
+      ;;     (if (zero? x)
+      ;;         (call/cc (lambda (k) (set! retry k) 1))
+      ;;         (* x (factorial (- x 1)))))
+      ;; (factorial 5)
+
 ;; ;;
 ;; ;;         ; (define (fact n r)
 ;; ;;         ;   (cond
@@ -1045,4 +1026,89 @@
      (lambda (exp)
        (exec exp  primitive-environment)))))
 
+
+
+;; (defstruct tree height girth age
+;;                 (leaf-shape 'frond)
+;;                 (leaf-color 'green))
+;;
+;; (define palm (make-tree 'height 60))
+;;
+;; (tree.height palm) 
+;; => 60
+;;
+;; (tree.leaf-shape palm) 
+;; => frond
+;;
+;; (define plantain 
+;;   (make-tree 'height 7
+;;              'leaf-shape 'sheet))
+;;
+;; (tree.height plantain) 
+;; => 7
+;;
+;; (tree.leaf-shape plantain) 
+;; => sheet
+;;
+;; (tree.leaf-color plantain) 
+;; => green
+;;
+;; 9.2  defstruct defined
+;;
+;; The defstruct macro definition follows:
+
+(define-macro (defstruct s . ff)
+    (let ((s-s (symbol->string s)) (n (length ff)))
+      (let* ((n+1 (+ n 1))
+             (vv (make-vector n+1)))
+        (let loop ((i 1) (ff ff))
+          (if (<= i n)
+            (let ((f (car ff)))
+              (vector-set! vv i 
+                (if (pair? f) (cadr f) '(if #f #f)))
+              (loop (+ i 1) (cdr ff)))))
+        (let ((ff (map (lambda (f) (if (pair? f) (car f) f))
+                       ff)))
+          `(begin
+             (define ,(string->symbol 
+                       (string-append "make-" s-s))
+               (lambda fvfv
+                 (let ((st (make-vector ,n+1)) (ff ',ff))
+                   (vector-set! st 0 ',s)
+                   ,@(let loop ((i 1) (r '()))
+                       (if (>= i n+1) r
+                           (loop (+ i 1)
+                                 (cons `(vector-set! st ,i 
+                                          ,(vector-ref vv i))
+                                       r))))
+                   (let loop ((fvfv fvfv))
+                     (if (not (null? fvfv))
+                         (begin
+                           (vector-set! st 
+                               (+ (list-position (car fvfv) ff)
+                                  1)
+                             (cadr fvfv))
+                           (loop (cddr fvfv)))))
+                   st)))
+             ,@(let loop ((i 1) (procs '()))
+                 (if (>= i n+1) procs
+                     (loop (+ i 1)
+                           (let ((f (symbol->string
+                                     (list-ref ff (- i 1)))))
+                             (cons
+                              `(define ,(string->symbol 
+                                         (string-append
+                                          s-s "." f))
+                                 (lambda (x) (vector-ref x ,i)))
+                              (cons
+                               `(define ,(string->symbol
+                                          (string-append 
+                                           "set!" s-s "." f))
+                                  (lambda (x v) 
+                                    (vector-set! x ,i v)))
+                               procs))))))
+             (define ,(string->symbol (string-append s-s "?"))
+               (lambda (x)
+                 (and (vector? x)
+                      (eqv? (vector-ref x 0) ',s)))))))))
 

@@ -140,6 +140,15 @@ pub const Parser = struct {
             .rparen => {
                 return error.UnmatchedRParen;
             },
+            .vector => {
+                self.token = try self.lexer.nextToken();
+                var n: usize = 0;
+                const isDotted = try self.parseList(&n);
+                if (isDotted) {
+                    return error.WrongSyntax;
+                }
+                try self.vm.bldr.newVector(n, true);
+            },
             else => {
                 std.debug.panic("not implemented {any}\n", .{self.token.id});
             },

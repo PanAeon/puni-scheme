@@ -107,9 +107,8 @@ pub fn sub(vm: *VM) anyerror!void {
 }
 
 
-// FIXME: need to be fixed..
-pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
-    var args = try vm.stack.pop(); // last ones
+pub fn _apply(vm: *VM) anyerror!void {
+    var args = try vm.stack.pop();
     const _f = try vm.stack.pop();
     vm.protect(args);
     vm.protect(_f);
@@ -117,9 +116,7 @@ pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
         return error.ExpectedList;
     }
 
-    try vm.bldr.newIntNumber(@intCast(vm.frame));
-    try vm.stack.push(vm.closure);
-    try vm.bldr.newIntNumber(@intCast(vm.ip + 1)); // push return value to the stack
+    try vm.save(1);
 
     var numArgs:u32 = 0;
     while (args.getId() != .nil) {
@@ -127,27 +124,8 @@ pub fn _apply(vm: *VM) anyerror!void { // can we make this tail call friendly?
         numArgs += 1;
         args = args.cast(.pair).snd;
     }
-
-    // unfortunately have to inline this here, or do I?
-                    const f = try _f.tryCast(.procedure);
-
-                    vm.frame = @intCast(vm.stack.size - numArgs - 3);
-                    if (f.varargs) {
-                        if (numArgs + 1 < f.numArgs) {
-                            return error.ArityMismatch;
-                        }
-                        const numLast = numArgs + 1 - f.numArgs ;
-                        try vm.bldr.newList();
-                        for (0..numLast) |_| {
-                            try vm.bldr.appendToListRev();
-                        }
-                    } else {
-                        if (f.numArgs != numArgs) {
-                            return error.ArityMismatch;
-                        }
-                    }
-                    vm.closure = f.env;
-                    vm.ip = @as(i64, @intCast(f.code)) - 1;
+    try vm.stack.push(_f);
+    try vm.jcall(numArgs);
 }
 
 
@@ -212,6 +190,79 @@ pub fn numEq(vm: *VM) anyerror!void {
     }
     try vm.bldr.newBool(res);
 }
+// TODO: write macro?
+pub fn _less(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    try assertArityGreaterOrEq(1, n);
+    try vm.stack.reverseInPlace(@intCast(n));
+    var res = true;
+    if (hasFloats(vm, n)) {
+        const first: f32 = try (try vm.stack.pop()).convertToFloat();
+        for (1..@intCast(n)) |_| {
+            res &= (first < try (try vm.stack.pop()).convertToFloat());
+        }
+    } else {
+        const first = (try (try vm.stack.pop()).tryGetIntValue());
+        for (1..@intCast(n)) |_| {
+            res &= first < (try (try vm.stack.pop()).tryGetIntValue());
+        }
+    }
+    try vm.bldr.newBool(res);
+}
+pub fn _lessEq(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    try assertArityGreaterOrEq(1, n);
+    try vm.stack.reverseInPlace(@intCast(n));
+    var res = true;
+    if (hasFloats(vm, n)) {
+        const first: f32 = try (try vm.stack.pop()).convertToFloat();
+        for (1..@intCast(n)) |_| {
+            res &= (first <= try (try vm.stack.pop()).convertToFloat());
+        }
+    } else {
+        const first = (try (try vm.stack.pop()).tryGetIntValue());
+        for (1..@intCast(n)) |_| {
+            res &= first <= (try (try vm.stack.pop()).tryGetIntValue());
+        }
+    }
+    try vm.bldr.newBool(res);
+}
+pub fn _greater(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    try assertArityGreaterOrEq(1, n);
+    try vm.stack.reverseInPlace(@intCast(n));
+    var res = true;
+    if (hasFloats(vm, n)) {
+        const first: f32 = try (try vm.stack.pop()).convertToFloat();
+        for (1..@intCast(n)) |_| {
+            res &= (first > try (try vm.stack.pop()).convertToFloat());
+        }
+    } else {
+        const first = (try (try vm.stack.pop()).tryGetIntValue());
+        for (1..@intCast(n)) |_| {
+            res &= first > (try (try vm.stack.pop()).tryGetIntValue());
+        }
+    }
+    try vm.bldr.newBool(res);
+}
+pub fn _greaterEq(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    try assertArityGreaterOrEq(1, n);
+    try vm.stack.reverseInPlace(@intCast(n));
+    var res = true;
+    if (hasFloats(vm, n)) {
+        const first: f32 = try (try vm.stack.pop()).convertToFloat();
+        for (1..@intCast(n)) |_| {
+            res &= (first >= try (try vm.stack.pop()).convertToFloat());
+        }
+    } else {
+        const first = (try (try vm.stack.pop()).tryGetIntValue());
+        for (1..@intCast(n)) |_| {
+            res &= first >= (try (try vm.stack.pop()).tryGetIntValue());
+        }
+    }
+    try vm.bldr.newBool(res);
+}
 pub fn isPositive(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     var positive = false;
@@ -260,6 +311,10 @@ pub fn isPair(vm: *VM) anyerror!void {
 pub fn isList(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .nil or n.getId() == .pair);
+}
+pub fn isVector(vm: *VM) anyerror!void {
+    const n = try vm.stack.pop();
+    try vm.bldr.newBool(n.getId() == .vector);
 }
 pub fn setCar(vm: *VM) anyerror!void {
     const b = try vm.stack.pop();
@@ -343,9 +398,16 @@ pub fn stringAppend(vm: *VM) anyerror!void {
 }
 pub fn stringToAtom(vm: *VM) anyerror!void { // TODO: radix..
     const string = try vm.stack.pop();
-    vm.protect(string);
     if (string.getId() == .string) {
         try vm.bldr.newAtom(string.cast(.string).s);
+    } else {
+        return error.IllegalArgument;
+    }
+}
+pub fn atomToString(vm: *VM) anyerror!void { // TODO: radix..
+    const atom = try vm.stack.pop();
+    if (atom.getId() == .atom) {
+        try vm.bldr.newString(atom.cast(.atom).name);
     } else {
         return error.IllegalArgument;
     }
@@ -532,7 +594,65 @@ pub fn isEqual(vm: *VM) anyerror!void {
     try vm.bldr.newBool(false);
 }
 
+pub fn mkVector(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    var el: NodePtr = undefined;
+    if (n != 1 and n != 2) {
+        return error.ArityMismatch;
+    }
+    const populate = n == 2;
+    if (populate) {
+        el = try vm.stack.pop();
+    }
+    const size = (try vm.stack.pop()).getIntValue();
+    if (size < 0) {
+        return error.IllegalArgument;
+    }
+    if (populate) {
+        for (0..@intCast(size)) |_| {
+            try vm.stack.push(el);
+        }
+    }
+    try vm.bldr.newVector(@intCast(size), populate);
+}
+pub fn _vector(vm: *VM) anyerror!void {
+    const n = (try vm.stack.pop()).getIntValue();
+    try vm.bldr.newVector(@intCast(n), true);
+}
+pub fn _vectorLength(vm: *VM) anyerror!void {
+    const v = try vm.stack.pop();
+    const vec = try v.tryCast(.vector);
+    try vm.bldr.newIntNumber(@intCast(vec.xs.len));
+}
+pub fn _vectorRef(vm: *VM) anyerror!void {
+    const n = try vm.stack.pop();
+    const v = try vm.stack.pop();
+    const vec = try v.tryCast(.vector);
+    const idx = try n.tryGetIntValue();
+    if (idx < 0) {
+        return error.IllegalArgument;
+    }
+    if (idx >= vec.xs.len) {
+        return error.IndexTooLarge;
+    }
+    try vm.stack.push(vec.xs[@intCast(idx)]);
+}
 
+pub fn _vectorSet(vm: *VM) anyerror!void {
+    const obj = try vm.stack.pop();
+    const n = try vm.stack.pop();
+    const v = try vm.stack.pop();
+    const vec = try v.tryCast(.vector);
+    const idx = try n.tryGetIntValue();
+    if (idx < 0) {
+        return error.IllegalArgument;
+    }
+    if (idx >= vec.xs.len) {
+        return error.IndexTooLarge;
+    }
+    vec.xs[@intCast(idx)] = obj;
+    try vm.stack.push(_void);
+}
 
 
 
@@ -583,10 +703,10 @@ pub fn _cc(vm: *VM) anyerror!void {
 // return closure that when called returns stack to this position..
 pub fn _callcc(vm: *VM) anyerror!void {
     const returnAddr = vm.ip + 1;
-    // const f = try vm.stack.pop();
-    // vm.protect(f);
-    // vm.printStack();
-    const stackLen = vm.stack.size - 1;
+    const f = try vm.stack.pop();
+    vm.protect(f);
+
+    const stackLen = vm.stack.size;
     try vm.bldr.newList();
     try vm.bldr.newVector(stackLen, false);
     const vec = (try vm.stack.head()).cast(.vector);
@@ -601,22 +721,16 @@ pub fn _callcc(vm: *VM) anyerror!void {
     try vm.bldr.newIntNumber(@intCast(returnAddr));
     try vm.bldr.appendToList();
 
-    // try vm.createProcedure(.{.code = 0, .numArgs = 1, .parentNumArgs = 1, .varargs = false});
 
     try vm.bldr.newEnv(1, true);
     try vm.bldr.newProc(vm.ccCodeLoc, false, 1);
-    try vm.bldr.newList();
-    try vm.bldr.appendToListRev();
-    // try vm.stack.push(f);
-    try _apply(vm);
-// (SET-CC (setf stack (top stack)))
-//          (CC     (push (make-fn
-//                          :env (list (vector stack))
-//                          :code '((ARGS 1) (LVAR 1 0 ";" stack) (SET-CC)
-//                                  (LVAR 0 0) (RETURN)))
-//                        stack))
-   // now we need to call f..
-    
+    const cc = try vm.stack.pop();
+    vm.protect(cc);
+    try vm.save(1);
+    try vm.stack.push(cc);
+
+    try vm.stack.push(f);
+    try vm.jcall(1);
 }
 
 pub const newline: Prim = .{.name = "newline", .exec = _newline,  .numArgs = 0};
@@ -626,6 +740,11 @@ pub const @"-": Prim = .{.name = "-", .exec = sub,  .varargs = true};
 pub const @"/": Prim = .{.name = "/", .exec = _div, .varargs = true};
 pub const @"*": Prim = .{.name = "*", .exec = _mul, .varargs = true};
 pub const @"=": Prim = .{.name = "=", .exec = numEq,.varargs = true};
+
+pub const @"<": Prim = .{.name = "<", .exec = _less,.varargs = true};
+pub const @"<=": Prim = .{.name = "<=", .exec = _lessEq,.varargs = true};
+pub const @">": Prim = .{.name = ">", .exec = _greater,.varargs = true};
+pub const @">=": Prim = .{.name = ">=", .exec = _greaterEq,.varargs = true};
 
 pub const @"error": Prim = .{.name = "error", .exec = _error,  .varargs = true};
 
@@ -655,9 +774,9 @@ pub const car: Prim = .{.name = "car", .exec = _car,  .numArgs = 1};
 pub const cdr: Prim = .{.name = "cdr", .exec = _cdr,  .numArgs = 1};
 
 pub const @"number->string": Prim = .{.name = "number->string", .exec = numberToString,  .numArgs = 1};
-pub const @"string->atom": Prim = .{.name = "string->atom", .exec = stringToAtom,  .numArgs = 1};
+pub const @"string->symbol": Prim = .{.name = "string->symbol", .exec = stringToAtom,  .numArgs = 1};
+pub const @"symbol->string": Prim = .{.name = "symbol->string", .exec = atomToString,  .numArgs = 1};
 pub const @"string-append": Prim =    .{.name = "string-append",    .exec = stringAppend,     .varargs = true};
-//         // .{ "string-append", @"string-append" },
 
 pub const @"eq?": Prim =    .{.name = "eq?",    .exec = isEq,     .numArgs = 2};
 pub const @"eqv?": Prim =   .{.name = "eqv?",   .exec = isEqv,    .numArgs = 2};
@@ -668,7 +787,6 @@ pub const cons: Prim =    .{.name = "cons",    .exec = _cons,     .numArgs = 2};
 pub const @"set-car!": Prim =    .{.name = "set-car!",    .exec = setCar,     .numArgs = 2};
 pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .numArgs = 2};
 
-// pub const __arg: Prim =    .{.name = "__arg",    .exec = retrieveArg,     .numArgs = 2};
 
 
 pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};
@@ -676,6 +794,13 @@ pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};
 pub const timeStart: Prim = .{.name = "timeStart", .exec = _timeStart, .numArgs = 0};
 pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1};
 
+
+pub const @"vector?": Prim = .{.name = "vector?", .exec = isVector,  .numArgs = 1};
+pub const @"make-vector": Prim =    .{.name = "make-vector",    .exec = mkVector,     .varargs = true};
+pub const @"vector": Prim =    .{.name = "vector",    .exec = _vector,     .varargs = true};
+pub const @"vector-length": Prim =    .{.name = "vector-length",    .exec = _vectorLength, .numArgs = 1};
+pub const @"vector-ref": Prim =    .{.name = "vector-length",    .exec = _vectorRef, .numArgs = 2};
+pub const @"vector-set!": Prim =    .{.name = "vector-set!",    .exec = _vectorSet, .numArgs = 3};
 
 // ------------------------------ macros --------------------------------------
 
