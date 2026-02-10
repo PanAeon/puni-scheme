@@ -191,7 +191,10 @@ pub const VM = struct {
         vm.prng = .init(blk: {
             var seed: u64 = undefined;
             const res = std.os.linux.getrandom(std.mem.asBytes(&seed), 8, 0);
-            std.debug.print("res: {d}", .{res});
+            if (res != 8) {
+                @panic("can't get enough entropy\n");
+            }
+            // std.debug.print("res: {d}", .{res});
             break :blk seed;
         });
         return vm;

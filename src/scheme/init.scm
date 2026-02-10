@@ -65,37 +65,37 @@
 ;; (write-string string port start) procedure
 ;; (write-string string port start end ) procedure
 (define writeString
-  (case-lambda 
+  (case-λ 
     [(s) (writeString2 s (current-output-port))]
     [(s p) (writeString2 s p)]))
 
 (define newline 
-  (case-lambda 
+  (case-λ 
     [() (newline1 (current-output-port))]
     [(p) (newline1 p)]))
 
 (define display
-  (case-lambda 
+  (case-λ 
     [(x) (display2 x (current-output-port))]
     [(x p) (display2 x p)]))
 
 (define write
-  (case-lambda 
+  (case-λ 
     [(x) (write2 x (current-output-port))]
     [(x p) (write2 x p)]))
 
 (define write-u8
-  (case-lambda 
+  (case-λ 
     [(x) (writeU82 x (current-output-port))]
     [(x p) (writeU82 x p)]))
 
 (define displaynl
-  (case-lambda 
+  (case-λ 
     [(x) (display2 x (current-output-port)) (newline)]
     [(x p) (display2 x p) (newline p)]))
 
 (define flush-output-port
-  (case-lambda 
+  (case-λ 
     [() (flush-output-port1 (current-output-port))]
     [(p) (flush-output-port1 p)]))
 
@@ -142,16 +142,16 @@
 
 
 
-;; and how to mark currently executed lambda in GC? (it shoould be in stack!)
-;; ((lambda (x . xs) xs) 3 4 5)
+;; and how to mark currently executed λ in GC? (it shoould be in stack!)
+;; ((λ (x . xs) xs) 3 4 5)
 
-;; (set! foo (lambda (x . xs) xs))
+;; (set! foo (λ (x . xs) xs))
 
 ;; (if #t (+ 1 2 3) (+ 1 2 3))
 
 ;; '(1 2 (+ 2 3) "" '(3 4) 5 (6 . 7))
 ;; (set! d 5)
-;; (set! f (lambda (a ) ((lambda (a c) (+ a c d)) (+ a 1) 4)))
+;; (set! f (λ (a ) ((λ (a c) (+ a c d)) (+ a 1) 4)))
 ;; (f 3)
 ;; (define plus +) // TODO: sort this out..
 
@@ -261,7 +261,7 @@
 ;;
 (define (add1 x) (+ 1 x))
 (define (sub1 x) (- x 1))
-(define list (lambda x x))
+(define list (λ x x))
 
 (define (list-ref xs i) 
   (if (zero? i) (head xs) (list-ref (tail xs) (- i 1))))
@@ -316,20 +316,20 @@
 ;; ;; ;; (let proc-id ([id init-expr] ...) body ...+)
 ;; ;;
 
-;; FIXME: named lambda is probably wrong..
+;; FIXME: named λ is probably wrong..
 
 (define-macro (let bindings . body)
   (if (symbol? bindings)
-      `(letrec ((,bindings (lambda ,(map first (head body)) ,@(tail body))))
+      `(letrec ((,bindings (λ ,(map first (head body)) ,@(tail body))))
         (,bindings ,@(map second (head body))))
-      `((lambda ,(map first bindings) ,@body)
+      `((λ ,(map first bindings) ,@body)
         ,@(map second bindings)) ))
 
 ;; (define-macro (let bindings . body)
 ;;   (if (symbol? bindings)
-;;       `(begin (define ,bindings (lambda ,(map first (head body)) ,@(tail body)))
+;;       `(begin (define ,bindings (λ ,(map first (head body)) ,@(tail body)))
 ;;         (,bindings ,@(map second (head body))))
-;;       `((lambda ,(map first bindings) ,@body)
+;;       `((λ ,(map first bindings) ,@body)
 ;;         ,@(map second bindings)) ))
 ;;
 ;; like let but evaluates val-exprs one-by-one
@@ -344,34 +344,34 @@
 ;;     (list y x))
 ;;
 (define-macro (letrec bindings . body)
-    `(let ,(map (lambda (v) (list (head v) #f))  bindings)
-       ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings)
+    `(let ,(map (λ (v) (list (head v) #f))  bindings)
+       ,@(map (λ (v) `(set! ,(head v) ,(head (tail v)))) bindings)
          (let () ,@body)))
 
 
 (define-macro (letrec* bindings . body)
-    `(let ,(map (lambda (v) (list (head v) #f))  bindings)
-       ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings)
+    `(let ,(map (λ (v) (list (head v) #f))  bindings)
+       ,@(map (λ (v) `(set! ,(head v) ,(head (tail v)))) bindings)
          (let () ,@body)))
 
-    ;; `(let ,(map (lambda (v) (list (head v) #f))  bindings) ,@(map (lambda (v) `(set! ,(head v) ,(head (tail v)))) bindings) (let () ,@body))
+    ;; `(let ,(map (λ (v) (list (head v) #f))  bindings) ,@(map (λ (v) `(set! ,(head v) ,(head (tail v)))) bindings) (let () ,@body))
 ;;
 ;; ;; ;; (def-scheme-macro letrec (bindings &rest body)
-;; ;; ;;  '(let ,(mapcar #'(lambda (v) (list (first v) nil)) bindings)
-;; ;; ;;     ,@(mapcar #'(lambda (v) '(set! . ,v)) bindings)
+;; ;; ;;  '(let ,(mapcar #'(λ (v) (list (first v) nil)) bindings)
+;; ;; ;;     ,@(mapcar #'(λ (v) '(set! . ,v)) bindings)
 ;; ;; ;;    .,body))
 ;;
 ;; ;; example usage:
- ;; (letrec ([is-even? (lambda (n)
+ ;; (letrec ([is-even? (λ (n)
  ;;                       (or (zero? n)
  ;;                           (is-odd? (sub1 n))))]
- ;;           [is-odd? (lambda (n)
+ ;;           [is-odd? (λ (n)
  ;;                      (and (not (zero? n))
  ;;                           (is-even? (sub1 n))))])
  ;;    (is-odd? 11))
 ;;
 ;; ;; (define-macro (gen-fun pr)
-;; ;;         `set! ,pr (lambda xs `(,pr ,@xs)))
+;; ;;         `set! ,pr (λ xs `(,pr ,@xs)))
 ;; ;; (define (+ . xs)  `(+ ,@xs))
 ;;
 (define-macro (and . xs) 
@@ -391,7 +391,7 @@
     (if (null? xs) `(begin)
       (if (equal? 'else (head (head xs))) `(begin ,@(tail (head xs)))
         (let ((y (gensym)))
-        `((lambda (,y) (if (member ,y (quote ,(head (head xs)))) (begin ,@(tail (head xs))) (case ,x ,@(tail xs))) ) ,x)))))
+        `((λ (,y) (if (member ,y (quote ,(head (head xs)))) (begin ,@(tail (head xs))) (case ,x ,@(tail xs))) ) ,x)))))
 ;;
 ;; ;; (define (tq a b) `(1 2 ,a ,b))
 ;; ;; (define-macro (let bindings . body)
@@ -400,7 +400,7 @@
 ;;
 ;; ;;
 ;; ;;
-;; ;;       ;; `((lambda ,(map first bindings) ,@body)
+;; ;;       ;; `((λ ,(map first bindings) ,@body)
 ;; ;;       ;;   ,@(map second bindings)) )
 ;; ;; ;; TODO: let*, letrec
 ;; ;;
@@ -432,13 +432,13 @@
 (define call-with-current-continuation call/cc)
 (let ((winders '()))
   (define common-tail
-    (lambda (x y)
+    (λ (x y)
       (let ((lx (length x)) (ly (length y)))
         (do ((x (if (> lx ly) (list-tail x (- lx ly)) x) (cdr x))
              (y (if (> ly lx) (list-tail y (- ly lx)) y) (cdr y)))
             ((eq? x y) x)))))
   (define do-wind
-    (lambda (new)
+    (λ (new)
       (let ((tail (common-tail new winders)))
         (let f ((l winders))
           (if (not (eq? l tail))
@@ -453,15 +453,15 @@
                 ((caar l))
                 (set! winders l)))))))
   (set! call/cc
-      (lambda (f)
-        (raw-call/cc (lambda (k)
+      (λ (f)
+        (raw-call/cc (λ (k)
              (f (let ((save winders))
-                  (lambda (x)
+                  (λ (x)
                     (if (not (eq? save winders)) (do-wind save))
                     (k x))))))))
   (set! call-with-current-continuation call/cc)
   (set! dynamic-wind
-    (lambda (in body out)
+    (λ (in body out)
       (in)
       (set! winders (cons (cons in out) winders))
       (let ((ans (body)))
@@ -476,12 +476,12 @@
 ;; fixme: looks like cc should accept N arguments
 (define (values . things)
    (call-with-current-continuation
-       (lambda (cont) (apply cont things))))
+       (λ (cont) (apply cont things))))
 ;; it's working!!!
 ;; (let* ((yin
-;;          ((lambda (cc) (display #\@) cc) (call/cc (lambda (c) c))))
+;;          ((λ (cc) (display #\@) cc) (call/cc (λ (c) c))))
 ;;        (yang
-;;          ((lambda (cc) (display #\*) cc) (call/cc (lambda (c) c)))))
+;;          ((λ (cc) (display #\*) cc) (call/cc (λ (c) c)))))
     ;; (yin yang))
 
 ;; (do ((〈variable1〉 〈init1〉 〈step1〉) syntax
@@ -498,7 +498,7 @@
 ;; command ...)
 ;; (letrec
 ;; ((loop
-;; (lambda (var ...)
+;; (λ (var ...)
 ;; (if test
 ;; (begin
 ;; (if #f #f)
@@ -527,20 +527,20 @@
 
 ;; (define-macro (
  ;; (let ((x 5)) 
- ;;   (letrec* ((foo (lambda (y ) (bar x y ) ) ) 
- ;;             (bar (lambda (a b ) (+ (* a b ) a ) ) ) ) 
+ ;;   (letrec* ((foo (λ (y ) (bar x y ) ) ) 
+ ;;             (bar (λ (a b ) (+ (* a b ) a ) ) ) ) 
  ;;     (foo (+ x 3 ) ) ))
 
 ;;'(if (null? (tail xs ) ) (begin #t ) 5 )
-;; ((lambda (ys)  (if (null? (tail ys ) ) #t  5)  ) '(1 2 3 4 5)) 
+;; ((λ (ys)  (if (null? (tail ys ) ) #t  5)  ) '(1 2 3 4 5)) 
 
 ;; test case for ap and tailcals and closures..
-;; ((lambda (zs) ((lambda (x ) (displaynl zs) ) 5 )) 8) 
+;; ((λ (zs) ((λ (x ) (displaynl zs) ) 5 )) 8) 
 
-;; works ok -> ((lambda (zs) ((lambda (x ) (displaynl zs) ) 5 ) (+ 1 1)) 8) 
+;; works ok -> ((λ (zs) ((λ (x ) (displaynl zs) ) 5 ) (+ 1 1)) 8) 
 
 
-;; (set! foobar (lambda (zs) (lambda (x ) (displaynl zs) )  ) )
+;; (set! foobar (λ (zs) (λ (x ) (displaynl zs) )  ) )
 ;; ;; ;; ;;; --------------------------------------------------
 ;; ;; ;;
 ;; ;; ;; ;;
@@ -598,7 +598,7 @@
 ;; ;; (define (let-test2 x bindings)
 ;; ;; (begin 
 ;; ;;   (cond [(zero? x ) (cons 1 bindings ) ] 
-;; ;;         [else ((lambda (rs ) rs ) (let-test2 (sub1 x ) bindings ) ) ] ) ))
+;; ;;         [else ((λ (rs ) rs ) (let-test2 (sub1 x ) bindings ) ) ] ) ))
 ;; ;;
 ;; ;;
 ;; ;; (define (let-test3)  
@@ -696,11 +696,11 @@
 ;; ;;           [else x])
 ;; ;;       ))
 ;; ;;
-;; ;;     (define (do-lambda param-list bs pmap)
+;; ;;     (define (do-λ param-list bs pmap)
 ;; ;;       (let ((pmap1 (cons (enumerate param-list) pmap))) 
 ;; ;;           ;; (flatten (list (list  'lambda) (list param-list) (do-iter pmap1 bs) ))))
 ;; ;;         ;; (do-iter pmap1 bs)))
-;; ;;       `(lambda ,param-list ,@(do-iter pmap1 bs))))
+;; ;;       `(λ ,param-list ,@(do-iter pmap1 bs))))
 ;; ;;
 ;; ;;     (define (do-iter pmap x)
 ;; ;;         (cond 
@@ -709,9 +709,9 @@
 ;; ;;             [(and (pair? x) (equal? 'quote (head x))) `(quote ,(second x))]
 ;; ;;             [(and (pair? x) (equal? 'set! (head x))) `(set! ,(second x) ,(do-iter pmap (third x)))]
 ;; ;;             [(and (pair? x) (equal? 'put! (head x))) `(put! ,(second x) ,(do-iter pmap (third x)))]
-;; ;;             [(and (pair? x) (equal? 'lambda (head x))) (do-lambda (second x) (tail (tail x)) pmap)]
-;; ;;             ;; [(and (pair? x) (increments-level? (head x))) (map (lambda (y) (do-iter (+ 1 level) y)) x)]
-;; ;;             [(pair? x) (map (lambda (y) (do-iter pmap y)) x)]
+;; ;;             [(and (pair? x) (equal? 'λ (head x))) (do-λ (second x) (tail (tail x)) pmap)]
+;; ;;             ;; [(and (pair? x) (increments-level? (head x))) (map (λ (y) (do-iter (+ 1 level) y)) x)]
+;; ;;             [(pair? x) (map (λ (y) (do-iter pmap y)) x)]
 ;; ;;             [else x]))
 ;; ;;
 ;; ;; (define (do-lexical-scoping proc)
@@ -723,7 +723,7 @@
 ;; ;; (define (foo2 x . xs) 
 ;; ;;     xs)
 ;; ;; (define (foo1 x y) 
-;; ;;     ((lambda (x) (+ x y)) (+ y x)))
+;; ;;     ((λ (x) (+ x y)) (+ y x)))
 ;; ;;
 ;; ;; (define (testquote)
 ;; ;;   '(+ foo1 b))
@@ -744,13 +744,13 @@
 ;; ;; ;;           [(not (eq?  0 env-ref)) (list __retrieve env-ref)]
 ;; ;; ;;           [else x])
 ;; ;; ;;       ))
-;; ;; ;;     (define (do-lambda param-list bs) `(lambda ,param-list ,@(iter 1 bs)))
+;; ;; ;;     (define (do-λ param-list bs) `(λ ,param-list ,@(iter 1 bs)))
 ;; ;; ;;     (define (iter level x)
 ;; ;; ;;         (cond 
 ;; ;; ;;             [(symbol? x) (do-symbol level x)]
-;; ;; ;;             [(and (pair? x) (equal? 'lambda (head x))) (do-lambda (second x) (tail (tail x)))]
-;; ;; ;;             [(and (pair? x) (increments-level? (head x))) (map (lambda (y) (iter (+ 1 level) y)) x)]
-;; ;; ;;             [(pair? x) (map (lambda (y) (iter level y)) x)]
+;; ;; ;;             [(and (pair? x) (equal? 'λ (head x))) (do-λ (second x) (tail (tail x)))]
+;; ;; ;;             [(and (pair? x) (increments-level? (head x))) (map (λ (y) (iter (+ 1 level) y)) x)]
+;; ;; ;;             [(pair? x) (map (λ (y) (iter level y)) x)]
 ;; ;; ;;             [else x]))
 ;; ;; ;;     (iter 1 expanded))
 ;; ;;
@@ -771,8 +771,8 @@
 ;; ;; ;;         (match x 
 ;; ;; ;;             ;; [(and (pair? x) (macro? (head x))) (begin (set! hasExpanded #t) (expand (head x) (tail x)))]
 ;; ;; ;;             [(? symbol?) (do-symbol level x)]
-;; ;; ;;             ;; [(and (pair? x) (increments-level? (head x))) (map (lambda (y) (iter (+ 1 level) y)) x)]
-;; ;; ;;             [(? pair?) (map (lambda (y) (iter level y)) x)]
+;; ;; ;;             ;; [(and (pair? x) (increments-level? (head x))) (map (λ (y) (iter (+ 1 level) y)) x)]
+;; ;; ;;             [(? pair?) (map (λ (y) (iter level y)) x)]
 ;; ;; ;;             [x x]))
 ;; ;; ;;     (iter 1 expanded))
 ;; ;;
@@ -825,26 +825,26 @@
 ;; ;;          ,false)))
 ;; ;; ;;; --------------------------------------------------
 ;; ;; ( define test1
-;; ;;     (lambda (x) 
+;; ;;     (λ (x) 
 ;; ;;       (let ((y 3)) x)))
 ;; ;;
 ;; ;; ( define test2
-;; ;;     (lambda (x) 
+;; ;;     (λ (x) 
 ;; ;;       (let ((x 3)) x)))
 ;; ;;
 ;; ;; ;; ( define test3
-;; ;; ;;     (lambda (x) 
+;; ;; ;;     (λ (x) 
 ;; ;; ;;       (let ((x 3)) (+ x z))))
 ;; ;; ;;
 ;; ;; ( define test4
-;; ;;     (lambda (x) 
+;; ;;     (λ (x) 
 ;; ;;       (let ((x 3)) (+ x 1))
 ;; ;;       x))
 ;; ;;
 ;; ;; ;; also nested lambdas...
 ;; ;;
-;; ;; ;; (define mylambda 
-;; ;; ;;   (lambda (x) (+ 1 1) (aif (zero? x) (add1 x) (aif (zero? x) 1 3)) ))
+;; ;; ;; (define myλ 
+;; ;; ;;   (λ (x) (+ 1 1) (aif (zero? x) (add1 x) (aif (zero? x) 1 3)) ))
 ;; ;; ;; (let ((alist '((a . 10) (b . 20) (c . 30))))
 ;; ;; ;;   (aif (assoc 'a alist)
 ;; ;; ;;        (begin
@@ -941,7 +941,7 @@
       ;; (define retry #f)
       ;; (define (factorial x)
       ;;     (if (zero? x)
-      ;;         (call/cc (lambda (k) (set! retry k) 1))
+      ;;         (call/cc (λ (k) (set! retry k) 1))
       ;;         (* x (factorial (- x 1)))))
       ;; (factorial 5)
 
@@ -955,7 +955,7 @@
 ;; ;;         ; (fact 12 1)
 ;; ;;     ; (define (foo x . xs) xs)
 ;; ;;     ; (foo 3 4 5 6 7 8)
-;; ;;     ; ((lambda xs xs) 1 2 3 4 5)
+;; ;;     ; ((λ xs xs) 1 2 3 4 5)
 ;; ;;
 ;; ;;         ; (define (add1 a) (+ a 1))
 ;; ;;         ; (fact 3000 1)
@@ -969,11 +969,11 @@
 ;; ;; ;;   )
 ;; ;; ;; )
 ;; ;; ; (myadd 5 1)
-;; ;; ; (+ 1 (call/cc (lambda (cc) (+ 20 300))))
-;; ;; ; (+ 1 (call/cc (lambda (cc) (+ 20 (cc 300)) 1)))
-;; ;; ; (define foo (+ 1 (call/cc (lambda (cc) (+ 20 (cc 300)))))
-;; ;; ; (+ 1  ((lambda (cc) (+ 20 300)) 5))
-;; ;; ; (((call/cc (lambda (k) k)) (lambda (x) x)) "HEY!")
+;; ;; ; (+ 1 (call/cc (λ (cc) (+ 20 300))))
+;; ;; ; (+ 1 (call/cc (λ (cc) (+ 20 (cc 300)) 1)))
+;; ;; ; (define foo (+ 1 (call/cc (λ (cc) (+ 20 (cc 300)))))
+;; ;; ; (+ 1  ((λ (cc) (+ 20 300)) 5))
+;; ;; ; (((call/cc (λ (k) k)) (λ (x) x)) "HEY!")
 ;; ;; ; (define x 12)
 ;; ;; ; (set! x (+ 1 x))
 ;; ;; ; x
@@ -981,7 +981,7 @@
 ;; ;; ; '(+ 2 3) '(quote (1 2 . (3))) '(you can 'me) '(+ 2 3)
 ;; ;; ; (+ 2 3)
 ;; ;; ; (define (add1 a) (+ a 5) (+ a 1)) (add1 3)
-;; ;; ; ((lambda (a b) (+ b a) ) 3 4)
+;; ;; ; ((λ (a b) (+ b a) ) 3 4)
 ;; ;; ; (define pi 3) (define (add a b) (+ a (add1 b))) (add pi pi)
 ;; ;; ; (define pi 3) (+ pi 2)
 ;; ;; ; (+ 2 3) (+) (+ 1) (+ (+ 2 3) 3)
@@ -1001,7 +1001,7 @@
 ;; ;; ; (+ 1 2 3 4 5)
 ;; ;; ; (zero? 0)
 ;; ;; ; (add1  3)  (add1 5) )
-;; ;; ; ((lambda (x y) (+ x y)) 3 4)
+;; ;; ; ((λ (x y) (+ x y)) 3 4)
 ;; ;; ; (if #f 1 2)
 ;; ;; ; (add1 5)
 ;; ;; ; (define (add2 a) (add1 a))
@@ -1067,7 +1067,7 @@
    ;; argument lists.  Environments are association lists,
    ;; associating variables with values.
    (define new-env
-     (lambda (formals actuals env)
+     (λ (formals actuals env)
        (cond
          ((null? formals) env)
          ((symbol? formals) (cons (cons formals actuals) env))
@@ -1078,26 +1078,26 @@
    ;; lookup finds the value of the variable var in the environment
    ;; env, using assq.  Assumes var is bound in env.
    (define lookup
-     (lambda (var env)
+     (λ (var env)
        (cdr (assoc var env))))
  
    ;; assign is similar to lookup but alters the binding of the
    ;; variable var in the environment env by changing the cdr of
    ;; association pair
    (define assign
-     (lambda (var val env)
+     (λ (var val env)
        (set-cdr! (assoc var env) val)))
  
    ;; exec evaluates the expression, recognizing all core forms.
    (define exec
-     (lambda (exp env) ;; is it so?
+     (λ (exp env) ;; is it so?
        (cond
          [(symbol? exp) (lookup exp env)]
          [(pair? exp)
           (case (car exp)
             ((quote) (cadr exp))
             ((lambda)
-             (lambda vals
+             (λ vals
                (let ((env (new-env (cadr exp) vals env)))
                  (let loop ((exps (cddr exp)))
                     (if (null? (cdr exps))
@@ -1115,13 +1115,13 @@
                      env))
             (else
              (apply (exec (car exp) env)
-                    (map (lambda (x) (exec x env))
+                    (map (λ (x) (exec x env))
                          (cdr exp)))))]
          (else exp))))
  
    ;; interpret starts execution with the primitive environment.
  (set! interpret
-     (lambda (exp)
+     (λ (exp)
        (exec exp  primitive-environment)))))
 
 
@@ -1165,12 +1165,12 @@
               (vector-set! vv i 
                 (if (pair? f) (cadr f) '(if #f #f)))
               (loop (+ i 1) (cdr ff)))))
-        (let ((ff (map (lambda (f) (if (pair? f) (car f) f))
+        (let ((ff (map (λ (f) (if (pair? f) (car f) f))
                        ff)))
           `(begin
              (define ,(string->symbol 
                        (string-append "make-" s-s))
-               (lambda fvfv
+               (λ fvfv
                  (let ((st (make-vector ,n+1)) (ff ',ff))
                    (vector-set! st 0 ',s)
                    ,@(let loop ((i 1) (r '()))
@@ -1197,16 +1197,16 @@
                               `(define ,(string->symbol 
                                          (string-append
                                           s-s "." f))
-                                 (lambda (x) (vector-ref x ,i)))
+                                 (λ (x) (vector-ref x ,i)))
                               (cons
                                `(define ,(string->symbol
                                           (string-append 
                                            "set!" s-s "." f))
-                                  (lambda (x v) 
+                                  (λ (x v) 
                                     (vector-set! x ,i v)))
                                procs))))))
              (define ,(string->symbol (string-append s-s "?"))
-               (lambda (x)
+               (λ (x)
                  (and (vector? x)
                       (eqv? (vector-ref x 0) ',s)))))))))
 
@@ -1215,22 +1215,22 @@
 ;;   (syntax-rules ()
 ;;     ((_ ((x v)) e1 e2 ...)
 ;;      (let ((y v))
-;;        (let ((swap (lambda () (let ((t x)) (set! x y) (set! y t)))))
-;;          (dynamic-wind swap (lambda () e1 e2 ...) swap))))))
+;;        (let ((swap (λ () (let ((t x)) (set! x y) (set! y t)))))
+;;          (dynamic-wind swap (λ () e1 e2 ...) swap))))))
 
 ;; (define-macro (fluid-let xexe . body)
 ;;     (let ((xx (map car xexe))
 ;;           (ee (map cadr xexe))
-;;           (old-xx (map (lambda (ig) (gensym)) xexe))
+;;           (old-xx (map (λ (ig) (gensym)) xexe))
 ;;           (result (gensym)))
-;;       `(let ,(map (lambda (old-x x) `(,old-x ,x)) 
+;;       `(let ,(map (λ (old-x x) `(,old-x ,x)) 
 ;;                   old-xx xx)
-;;          ,@(map (lambda (x e)
+;;          ,@(map (λ (x e)
 ;;                   `(set! ,x ,e)) 
 ;;                 xx ee)
-;;          (dynamic-wind swap (lambda () ,@body) swap ))))
+;;          (dynamic-wind swap (λ () ,@body) swap ))))
 ;; (let ((,result (begin ,@body)))
-;;            ,@(map (lambda (x old-x)
+;;            ,@(map (λ (x old-x)
 ;;                     `(set! ,x ,old-x)) 
 ;;                   xx old-xx)
 ;;            ,result)
@@ -1239,33 +1239,33 @@
 (define-macro (fluid-let xexe . body)
     (let ((xx (map car xexe))
           (ee (map cadr xexe))
-          (old-xx (map (lambda (ig) (gensym)) xexe))
+          (old-xx (map (λ (ig) (gensym)) xexe))
           (result (gensym)))
-      `(let ,(map (lambda (old-x x) `(,old-x ,x)) 
+      `(let ,(map (λ (old-x x) `(,old-x ,x)) 
                   old-xx xx)
-         ,@(map (lambda (x e)
+         ,@(map (λ (x e)
                   `(set! ,x ,e)) 
                 xx ee)
          (let ((,result (begin ,@body)))
-           ,@(map (lambda (x old-x)
+           ,@(map (λ (x old-x)
                     `(set! ,x ,old-x)) 
                   xx old-xx)
            ,result))))
 
 (define-macro (coroutine x . body)
     `(letrec ((local-control-state
-               (lambda (,x) ,@body))
+               (λ (,x) ,@body))
               (resume
-               (lambda (c v)
+               (λ (c v)
                  (call/cc
-                  (lambda (k)
+                  (λ (k)
                     (set! local-control-state k)
                     (c v))))))
-       (lambda (v)
+       (λ (v)
          (local-control-state v))))
 
 (define make-matcher-cor
-  (lambda (tree-cor-1 tree-cor-2)
+  (λ (tree-cor-1 tree-cor-2)
     (coroutine dummy-init-arg
       (let loop ()
         (let ((leaf1 (resume tree-cor-1 'get-a-leaf))
@@ -1275,7 +1275,7 @@
               #f))))))
 
 (define make-leaf-gen-cor
-  (lambda (tree matcher-cor)
+  (λ (tree matcher-cor)
     (coroutine dummy-init-arg
       (let loop ((tree tree))
         (cond ((null? tree) 'skip)
@@ -1287,24 +1287,24 @@
       (resume matcher-cor '()))))
 
 (define same-fringe?
-  (lambda (tree1 tree2)
+  (λ (tree1 tree2)
     (letrec ((tree-cor-1
               (make-leaf-gen-cor
                tree1
-               (lambda (v) (matcher-cor v))))
+               (λ (v) (matcher-cor v))))
              (tree-cor-2
               (make-leaf-gen-cor
                tree2
-               (lambda (v) (matcher-cor v))))
+               (λ (v) (matcher-cor v))))
              (matcher-cor
               (make-matcher-cor
-               (lambda (v) (tree-cor-1 v))
-               (lambda (v) (tree-cor-2 v)))))
+               (λ (v) (tree-cor-1 v))
+               (λ (v) (tree-cor-2 v)))))
       (matcher-cor 'start-the-ball-rolling))))
 (define *rain-prob* 0.4)
 (define *max-num-walks* (* 365 2 5))
 (define make-location-cor
-  (lambda (other-location-cor manager-cor)
+  (λ (other-location-cor manager-cor)
     (coroutine v
       (let ((num-umbrellas 1))
         (let loop ((umbrella? (car v))
@@ -1330,7 +1330,7 @@
                             (list #f (+ walks-so-far 1)))))))))))
 
 (define make-manager-cor
-  (lambda (home-cor)
+  (λ (home-cor)
     (coroutine dummy-init-arg
       (resume home-cor (list #f 0)))))
 
@@ -1340,17 +1340,17 @@
 
 
 (define umbrella-trial
-  (lambda (rain-prob)
-    (lambda ()
+  (λ (rain-prob)
+    (λ ()
       (when (number? rain-prob) (set! *rain-prob* rain-prob))
         (letrec ((home-cor (make-location-cor
-                             (lambda (v) (office-cor v))
-                             (lambda (v) (manager-cor v))))
+                             (λ (v) (office-cor v))
+                             (λ (v) (manager-cor v))))
                  (office-cor (make-location-cor
-                               (lambda (v) (home-cor v))
-                               (lambda (v) (manager-cor v))))
+                               (λ (v) (home-cor v))
+                               (λ (v) (manager-cor v))))
                  (manager-cor (make-manager-cor
-                                (lambda (v) (home-cor v)))))
+                                (λ (v) (home-cor v)))))
           (manager-cor 'start-the-ball-rolling)
            )
       ; the letrec expression goes here
@@ -1359,7 +1359,7 @@
 (define *num-trials* 1000)
 
 (define monte-carlo
-  (lambda (experiment)
+  (λ (experiment)
     (let loop ((i 0) (acc 0.0))
       (if (= i *num-trials*)
           (/ acc *num-trials*)
@@ -1369,7 +1369,7 @@
 (define *exception-handler* '())
 (define (catch tag body)
   (call/cc
-    (lambda (k)
+    (λ (k)
       ;; Save the 'catch' continuation (k) in a global/dynamic handler list
       ;; associated with 'tag'. For a simple example, we assume a single,
       ;; global handler for demonstration purposes. A real implementation
@@ -1392,7 +1392,7 @@
 
 
 (define (test-ex)
-  (catch 5 (lambda () (throw 5 3)))
+  (catch 5 (λ () (throw 5 3)))
 
   )
 
@@ -1404,7 +1404,7 @@
 ;; wrong, should use continuation
 (define (with-exception-handler handler thunk) 
   (call/cc 
-    (lambda (k) 
+    (λ (k) 
     (let ((old-handler *current-exception-handler*)) 
       (set! *current-exception-handler* handler)
       (let ((result (thunk))) 
@@ -1421,7 +1421,7 @@
 
 
 (define (test-raise)
-  (with-exception-handler (lambda (err) (displaynl err)) (lambda () (raise "error")))
+  (with-exception-handler (λ (err) (displaynl err)) (λ () (raise "error")))
 
   )
 ;; https://code.call-cc.org/svn/chicken-eggs/release/5/simple-exceptions/trunk/simple-exceptions.scm
@@ -1434,22 +1434,22 @@
 
 ;; (define (with-exn-handler handler thunk)
 ;;   ((call-with-current-continuation
-;;      (lambda (k)
+;;      (λ (k)
 ;;        (with-exception-handler ; Chicken's handler
-;;          (lambda (exn)
-;;            (k (lambda () (handler exn))))
+;;          (λ (exn)
+;;            (k (λ () (handler exn))))
 ;;          thunk)))))
 
 
 
 (define-macro (delay expr)
-     `(make-promise (lambda () ,expr)))
+     `(make-promise (λ () ,expr)))
 
 
 (define make-promise
-  (lambda (p)
+  (λ (p)
     (let ([val #f] [set? #f])
-      (lambda ()
+      (λ ()
         (unless set?
           (let ([x (p)])
             (unless set?
@@ -1459,7 +1459,7 @@
 
 
 (define force
-  (lambda (promise)
+  (λ (promise)
     (promise)))
 
 
@@ -1468,32 +1468,32 @@
 ;; (define call-with-values #f)
 ;; (let ((magic (cons 'multiple 'values)))
 ;;   (define magic?
-;;     (lambda (x)
+;;     (λ (x)
 ;;       (and (pair? x) (eq? (car x) magic))))
 ;;
 ;;   (set! call/cc
 ;;     (let ((primitive-call/cc call/cc))
-;;       (lambda (p)
+;;       (λ (p)
 ;;         (primitive-call/cc
-;;           (lambda (k)
-;;             (p (lambda args
+;;           (λ (k)
+;;             (p (λ args
 ;;                  (k (apply values args)))))))))
 ;;
 ;;   (set! values
-;;     (lambda args
+;;     (λ args
 ;;       (if (and (not (null? args)) (null? (cdr args)))
 ;;           (car args)
 ;;           (cons magic args))))
 ;;
 ;;   (set! call-with-values
-;;     (lambda (producer consumer)
+;;     (λ (producer consumer)
 ;;       (let ((x (producer)))
 ;;         (if (magic? x)
 ;;             (apply consumer (cdr x))
 ;;             (consumer x))))))
 
 ;; (define for-each
-;;   (lambda (f ls . more)
+;;   (λ (f ls . more)
 ;;     (do ((ls ls (cdr ls)) (more more (map cdr more)))
 ;;         ((null? ls))
 ;;         (apply f (car ls) (map car more)))))
@@ -1504,13 +1504,13 @@
 ;; (define-syntax try
 ;;   (syntax-rules ()
 ;;         ((_ handler throw chunk)
-;;          (call/cc (lambda (catch)
-;;                 (let ((throw (lambda (exc) (catch (handler exc)))))
+;;          (call/cc (λ (catch)
+;;                 (let ((throw (λ (exc) (catch (handler exc)))))
 ;;                   chunk))))))
 ;; (define (div p q)
 ;;   (try 
 ;;     ;; Error processing
-;;     (lambda (error) (printf "Error: ~s~n" error) error)
+;;     (λ (error) (printf "Error: ~s~n" error) error)
 ;;
 ;;     ;; Error my be thrown with keyword "throw"
 ;;     throw

@@ -1,7 +1,9 @@
-// re2zig $INPUT -o $OUTPUT
+// re2zig $INPUT -o $OUTPUT --utf8
 
 // https://conservatory.scheme.org/schemers/Documents/Standards/R5RS/HTML/r5rs-Z-H-10.html#%_sec_7.1.1
 const std = @import("std");
+
+%{include "unicode_categories.re" %}
 
 pub const LexerError = error{ UnclosedString, UnknownToken };
 pub const Token = struct {
@@ -55,16 +57,17 @@ pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
    loop: while(true) {
       const start = yyrecord.yycursor;
         %{
+            re2c:encoding:utf8 = 1;
             re2c:api = record;
             re2c:yyfill:enable = 0;
             re2c:eof = 0;
 
             digit = [0-9];
             peculiar_id = "+" | "-" | "...";
-            letter = [a-zA-Z];
+            letter = [a-zA-Z] | L | Nl;
             special_initial =  "!" | "$" | "%" | "&" | "*" | "/" | ":" | "<" | "=" | ">" | "?" | "^" | "_" | "~";
             initial = letter | special_initial ;
-            special_subsequent = "+" | "." | "-" | "@" ;
+            special_subsequent = "+" | "." | "-" | "@" | Mn | Mc | Nd | Pc | [\u200D\u05F3];
             subsequent = initial | digit | special_subsequent ;
 
             identifier = (initial subsequent*) | peculiar_id;

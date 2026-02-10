@@ -194,7 +194,7 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
 
                     // try self.genExpr(try self.genQuasiQuote(xs[1]), buffer, lexicalCtx, false);
                     // return;
-                } else if (std.mem.eql(u8, "case-lambda", name)) {
+                } else if (std.mem.eql(u8, "case-lambda", name) or std.mem.eql(u8, "case-λ", name)) {
                     try self.genCaseLambda(node.tail(), buffer, lexicalCtx);
                     return;
                 } else if (std.mem.eql(u8, "lambda", name) or std.mem.eql(u8, "λ", name)) {
