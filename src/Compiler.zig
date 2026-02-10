@@ -139,7 +139,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
             const pair = node.cast(.pair);
             if (pair.fst.getId() == .atom) {
                 const name = pair.fst.cast(.atom).name;
-                if (std.mem.eql(u8, "set!", name)) { // TODO: set is not allowed to create new global vars
+                if (std.mem.eql(u8, "put!", name)) {
+                    return self.genPut(try node.second(), try node.third(), buffer, lexicalCtx);
+                } else if (std.mem.eql(u8, "set!", name)) {
                     // if (xs.len != 3) {
                     //     return error.ArityMismatch;
                     // }
@@ -166,9 +168,9 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                         return;
                     } else if (l == 3) {
                         try self.vm.bldr.newList();
-                        try self.vm.bldr.newString("Missing else branch");
-                        try self.vm.bldr.appendToList();
-                        try self.vm.bldr.newAtom("error");
+                        // try self.vm.bldr.newString("Missing else branch");
+                        // try self.vm.bldr.appendToList();
+                        try self.vm.bldr.newAtom("begin");
                         try self.vm.bldr.appendToList();
                         const _missingFalseBranch = try self.vm.stack.pop();
                         try self.vm.protectCompile.push(_missingFalseBranch);
@@ -192,7 +194,10 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
 
                     // try self.genExpr(try self.genQuasiQuote(xs[1]), buffer, lexicalCtx, false);
                     // return;
-                } else if (std.mem.eql(u8, "lambda", name)) {
+                } else if (std.mem.eql(u8, "case-lambda", name)) {
+                    try self.genCaseLambda(node.tail(), buffer, lexicalCtx);
+                    return;
+                } else if (std.mem.eql(u8, "lambda", name) or std.mem.eql(u8, "λ", name)) {
                     // if (xs.len < 3) {
                     //     return error.WrongSyntax;
                     // }
@@ -252,6 +257,29 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
     }
 }
 
+pub fn genCaseLambda(self: *Compiler, _clauses: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+    const numClauses = _clauses.len();
+    var params = try self.arena.alloc(Instruction, @intCast(numClauses));
+    const parentNumArgs = if (lexicalCtx.rib) |r| r.params.len else 0;
+    var clauses = _clauses;
+    var i:usize = 0;
+    while (clauses.getId() != .nil) {
+        const clause = clauses.head();
+        const bodies = try self.transformInnerDefines(clause.tail());
+        try self.genLambda(clause.head(), bodies, buffer, lexicalCtx);
+        clauses = clauses.tail();
+        params[i] = buffer.getLast();
+        buffer.shrinkRetainingCapacity(buffer.items.len - 2);
+        i += 1;
+    }
+
+    try buffer.append(self.arena, .{ .Fn = .{ 
+        .numParams = @intCast(numClauses),
+        .parentNumArgs = @intCast(parentNumArgs) }} );
+    for (params) |p| {
+        try buffer.append(self.allocator, p);
+    }
+}
 
 pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
     var lambdaBuff = try std.ArrayList(Instruction).initCapacity(self.arena, 256);
@@ -326,13 +354,14 @@ pub fn genLambda(self: *Compiler, params: NodePtr, bodies: NodePtr, buffer: *std
         }
     }
 
-    // try self.vm.bldr.newEnv(numParams); // the environment is wrong, must create procedure in code..
-    // try self.vm.bldr.newProc(@intCast(offset), varargs);
-    // const proc = try self.vm.stack.pop();
-    // try self.vm.data.append(self.allocator, proc);
     try buffer.append(self.arena, .{ .Fn = .{ 
-        .code = @intCast(offset), .varargs = varargs, .numArgs = @intCast(numParams),
+        .numParams = 1,
         .parentNumArgs = @intCast(parentNumArgs) }} );
+    try buffer.append(self.allocator, .{ .FnParams = .{
+        .code = @intCast(offset),
+        .numArgs = @intCast(numParams),
+        .isVarargs = varargs,
+    } });
     lexicalCtx.pop();
     // return const lambda I suppose..
 }
@@ -353,7 +382,15 @@ pub fn fixUpLambda(self: *Compiler, codeOffset:usize, level: usize, idx: usize) 
                 }
             },
             .Fn  => |f| {
-                self.fixUpLambda(f.code, level+1, idx);
+                for (0..f.numParams) |j| {
+                    const param = self.vm.code.items[i+j+1]; 
+                    switch (param) {
+                        .FnParams => |p| {
+                            self.fixUpLambda(p.code, level + 1, idx);
+                        },
+                        else => { @panic("not reachable"); }
+                    }
+                }
             },
             .Return => {
                 break :loop;
@@ -464,6 +501,20 @@ pub fn genSet(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.Ar
         try buffer.append(self.arena, .{ .GSet = nameNode });
         try buffer.append(self.arena, .{ .Const = _void });
     }
+}
+pub fn genPut(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+    if (nameNode.getId() != .atom) {
+        return error.WrongSyntax;
+    }
+    if (lexicalCtx.rib != null) {
+        return error.IllegalDefine;
+    }
+    // const name = nameNode.cast(.atom).name;
+    try self.genExpr(expr, buffer, lexicalCtx, false);
+
+
+        try buffer.append(self.arena, .{ .GPut = nameNode });
+        try buffer.append(self.arena, .{ .Const = _void });
 }
 
 pub fn genSetMacro(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {

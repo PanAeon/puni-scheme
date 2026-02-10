@@ -132,13 +132,13 @@ pub const NodePtr = struct {
     }
     pub fn getCharValue(self: *const NodePtr) u8 {
         if (self.getId() != .char) {
-            std.debug.panic("can't get intvalue from: {}", .{self.getId()});
+            std.debug.panic("can't get char value from: {}", .{self.getId()});
         }
         return @bitCast(@as(u8, @truncate(self.ptr & IntMask)));
     }
-    pub fn tryCharIntValue(self: *const NodePtr) anyerror!u8 {
+    pub fn tryGetCharValue(self: *const NodePtr) anyerror!u8 {
         if (self.getId() != .char) {
-            std.debug.print("is not int: {}", .{self.getId()});
+            std.debug.print("is not char: {}", .{self.getId()});
             return error.IllegalArgument;
         }
         return @bitCast(@as(u8, @truncate(self.ptr & IntMask)));
@@ -206,142 +206,258 @@ pub const NodePtr = struct {
     // }
 
     pub fn debugprint(self: *const NodePtr, msg: []const u8) void {
+
+        var threaded: std.Io.Threaded = .init_single_threaded;
+        var stdout_buffer: [2048]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writer(threaded.io(), &stdout_buffer);
+        const stderr = &stderr_writer.interface;
+
         std.debug.print("{s} ", .{msg});
-        std.debug.print("'", .{});
-        self.print();
+        self.print(stderr) catch { }; // ignore?
+        stderr.flush() catch {}; //ignore
         std.debug.print("\n", .{});
+        
     }
-    pub fn printList(n: *const NodePtr) void {
-        const p = n.cast(.pair);
-        std.debug.print("(", .{});
-        print(&p.fst);
-        var x = p.snd;
-        while (x.getId() == .pair) {
-            var p1 = x.cast(.pair);
-            print(&p1.fst);
-            x = p1.snd;
+    pub fn print(n: *const NodePtr, writer: *std.Io.Writer) anyerror!void {
+        switch (n.getId()) {
+            .pair, .vector, .atom, .nil => {
+                try writer.print("'", .{});
+            },
+            else => {},
         }
-        // std.debug.print(" . ", .{});
-        if (x.getId() != .nil) {
-            std.debug.print(". ", .{});
-            print(&x);
-        }
-        std.debug.print(")", .{});
+        return n.print0(writer);
     }
-    pub fn print(n: *const NodePtr) void {
+
+    pub fn print0(n: *const NodePtr, writer: *std.Io.Writer) anyerror!void {
         switch (n.getId()) {
             .atom => {
                 const b = n.cast(.atom);
-                std.debug.print("{s} ", .{b.name});
+                try writer.print("{s} ", .{b.name});
             },
             .pair => {
                 if (n.cast(.pair).fst.getId() == .atom) {
                     const name = n.cast(.pair).fst.cast(.atom).name;
                     if (std.mem.eql(u8, "quote", name)) {
-                        std.debug.print("'", .{});
-                        const snd = n.second() catch { std.debug.print("<<bare quote>>", .{}); return; };
-                        snd.print();
+                        try writer.print("'", .{});
+                        const snd = n.second() catch { try writer.print("<<bare quote>>", .{}); return; };
+                        try snd.print0(writer);
                         return;
                     } else if (std.mem.eql(u8, "quasiquote", name)) {
-                        std.debug.print("`", .{});
-                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
-                        snd.print();
+                        try writer.print("`", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.print0(writer);
                         return;
                     } else if (std.mem.eql(u8, "unquote", name)) {
-                        std.debug.print(",", .{});
-                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
-                        snd.print();
+                        try writer.print(",", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.print0(writer);
                         return;
                     } else if (std.mem.eql(u8, "unquote-splicing", name)) {
-                        std.debug.print(",@", .{});
-                        const snd = n.second()  catch { std.debug.print("<<bare >>", .{}); return; };
-                        snd.print();
+                        try writer.print(",@", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.print0(writer);
                         return;
                     }
                 }
                 const p = n.cast(.pair);
-                std.debug.print("(", .{});
-                print(&p.fst);
+                try writer.print("(", .{});
+                try print0(&p.fst, writer);
                 var x = p.snd;
                 while (x.getId() == .pair) {
                     var p1 = x.cast(.pair);
-                    print(&p1.fst);
+                    try print0(&p1.fst, writer);
                     x = p1.snd;
                 }
-                // std.debug.print(" . ", .{});
+                // try writer.print(" . ", .{});
                 if (x.getId() != .nil) {
-                    std.debug.print(". ", .{});
-                    print(&x);
+                    try writer.print(". ", .{});
+                    try print0(&x, writer);
                 }
-                std.debug.print(") ", .{});
+                try writer.print(") ", .{});
             },
             .nil => {
-                std.debug.print("() ", .{});
+                try writer.print("() ", .{});
             },
             .void => {},
             .resource => {
-                std.debug.print("resource\n", .{});
+                try writer.print("resource\n", .{});
             },
             // .currentCont => {
-            //     std.debug.print("<continuation>", .{});
+            //     try writer.print("<continuation>", .{});
             // },
             .intNumber => {
-                std.debug.print("{d} ", .{n.getIntValue()});
+                try writer.print("{d} ", .{n.getIntValue()});
             },
             .floatNumber => {
-                std.debug.print("{d} ", .{n.getFloatValue()});
+                try writer.print("{d} ", .{n.getFloatValue()});
             },
             .char => {
                 const v = n.getCharValue();
                 if (v == 10) {
-                   std.debug.print("#\\newline ", .{});
+                   try writer.print("#\\newline ", .{});
                 } else if (v == 32) {
-                   std.debug.print("#\\space ", .{});
+                   try writer.print("#\\space ", .{});
                 } else {
-                   std.debug.print("{c} ", .{v});
+                   try writer.print("{c} ", .{v});
                 }
             },
             // .primitive => {
             //     const p = n.cast(.primitive);
             //     if (p.isMacro) {
-            //         std.debug.print("<macro {s}> ", .{p.name});
+            //         try writer.print("<macro {s}> ", .{p.name});
             //     } else {
-            //         std.debug.print("<{s}> ", .{p.name});
+            //         try writer.print("<{s}> ", .{p.name});
             //     }
             // },
             .vector => {
                 const v = n.cast(.vector);
-                std.debug.print("#(", .{});
+                try writer.print("#(", .{});
                 for (v.xs) |x| {
-                    print(&x);
+                    try print0(&x, writer);
                 }
-                std.debug.print(")", .{});
+                try writer.print(")", .{});
             },
             .procedure => {
                 
                 // const p = n.cast(.procedure);
                 // if (p.isMacro) {
-                //     std.debug.print("( <macro>", .{});
+                //     try writer.print("( <macro>", .{});
                 // } else {
-                //     std.debug.print("( ...", .{});
+                //     try writer.print("( ...", .{});
                 // }
                 // p.args.print();
                 // p.body.printList();
-                std.debug.print("proc", .{});
+                try writer.print("proc", .{});
             },
             .string => {
                 const b = n.cast(.string);
-                std.debug.print("\"{s}\" ", .{b.s});
+                try writer.print("\"{s}\" ", .{b.s});
             },
             .bool => {
                 if (n.getBoolValue()) {
-                    std.debug.print("#t ", .{});
+                    try writer.print("#t ", .{});
                 } else {
-                    std.debug.print("#f ", .{});
+                    try writer.print("#f ", .{});
                 }
             },
         }
     }
+
+    pub fn display(n: *const NodePtr, writer: *std.Io.Writer) anyerror!void {
+        switch (n.getId()) {
+            .atom => {
+                const b = n.cast(.atom);
+                try writer.print("{s} ", .{b.name});
+            },
+            .pair => {
+                if (n.cast(.pair).fst.getId() == .atom) {
+                    const name = n.cast(.pair).fst.cast(.atom).name;
+                    if (std.mem.eql(u8, "quote", name)) {
+                        try writer.print("'", .{});
+                        const snd = n.second() catch { try writer.print("<<bare quote>>", .{}); return; };
+                        try snd.display(writer);
+                        return;
+                    } else if (std.mem.eql(u8, "quasiquote", name)) {
+                        try writer.print("`", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.display(writer);
+                        return;
+                    } else if (std.mem.eql(u8, "unquote", name)) {
+                        try writer.print(",", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.display(writer);
+                        return;
+                    } else if (std.mem.eql(u8, "unquote-splicing", name)) {
+                        try writer.print(",@", .{});
+                        const snd = n.second()  catch { try writer.print("<<bare >>", .{}); return; };
+                        try snd.display(writer);
+                        return;
+                    }
+                }
+                const p = n.cast(.pair);
+                try writer.print("(", .{});
+                try display(&p.fst, writer);
+                var x = p.snd;
+                while (x.getId() == .pair) {
+                    var p1 = x.cast(.pair);
+                    try display(&p1.fst, writer);
+                    x = p1.snd;
+                }
+                // try writer.print(" . ", .{});
+                if (x.getId() != .nil) {
+                    try writer.print(". ", .{});
+                    try display(&x, writer);
+                }
+                try writer.print(") ", .{});
+            },
+            .nil => {
+                try writer.print("() ", .{});
+            },
+            .void => {},
+            .resource => {
+                try writer.print("resource\n", .{});
+            },
+            // .currentCont => {
+            //     try writer.print("<continuation>", .{});
+            // },
+            .intNumber => {
+                try writer.print("{d} ", .{n.getIntValue()});
+            },
+            .floatNumber => {
+                try writer.print("{d} ", .{n.getFloatValue()});
+            },
+            .char => {
+                const v = n.getCharValue();
+                if (v == 10) {
+                   try writer.print("\n", .{});
+                } else if (v == 32) {
+                   try writer.print(" ", .{});
+                } else {
+                   try writer.print("{c} ", .{v});
+                }
+            },
+            // .primitive => {
+            //     const p = n.cast(.primitive);
+            //     if (p.isMacro) {
+            //         try writer.print("<macro {s}> ", .{p.name});
+            //     } else {
+            //         try writer.print("<{s}> ", .{p.name});
+            //     }
+            // },
+            .vector => {
+                const v = n.cast(.vector);
+                try writer.print("#(", .{});
+                for (v.xs) |x| {
+                    try display(&x, writer);
+                }
+                try writer.print(")", .{});
+            },
+            .procedure => {
+                
+                // const p = n.cast(.procedure);
+                // if (p.isMacro) {
+                //     try writer.print("( <macro>", .{});
+                // } else {
+                //     try writer.print("( ...", .{});
+                // }
+                // p.args.print();
+                // p.body.printList();
+                try writer.print("proc", .{});
+            },
+            .string => {
+                const b = n.cast(.string);
+                try writer.print("{s} ", .{b.s});
+            },
+            .bool => {
+                if (n.getBoolValue()) {
+                    try writer.print("#t ", .{});
+                } else {
+                    try writer.print("#f ", .{});
+                }
+            },
+        }
+    }
+
 
     pub fn getName(self: *const NodePtr) []const u8 {
         if (self.getId() != .atom) {
@@ -434,14 +550,14 @@ pub const Node = struct {
 
     pub const Procedure = struct { 
         base: Node = .{},
-        code: u32,
-        // optimized: ?NodePtr = null,
         env: NodePtr,
-        numArgs: u32,
-        varargs: bool,
-        
-        // isMacro: bool = false,
-        // expandMacro: bool = false // hacky, but what to do?
+        params: []Params,
+
+        pub const Params = struct {
+          code: u32,
+          numArgs: u32,
+          varargs: bool,
+        };
     };
 
     pub const Atom = struct { base: Node = .{}, name: []const u8 };
@@ -472,20 +588,39 @@ pub const Node = struct {
         ptr: *anyopaque,
 
         pub const ResourceType = enum {
-            stdout
+            outputFile
         };
 
-        pub const Stdout = struct {
+        pub const OutputFile = struct {
             io: std.Io,
-            buffer: [2048]u8,
-            writer: std.Io.File.Writer,
+            buffer: [2048]u8 = undefined,
+            writer: std.Io.File.Writer = undefined,
+            file: std.Io.File,
         };
 
-        pub fn finalize(self: Resource, allocator: std.mem.Allocator) void {
-            _ = &allocator;
+        pub fn getWriter(self: *Resource) anyerror!*std.Io.Writer {
+            if (self.resourceType != .outputFile) {
+                return error.IllegalArgument;
+            }
+            const _stdout = @as(*Node.Resource.OutputFile, @alignCast(@ptrCast(self.ptr)));
+            return &_stdout.writer.interface;
+        }
+        pub fn close(self: *Resource) anyerror!void {
+            if (self.resourceType != .outputFile) {
+                return error.IllegalArgument;
+            }
+            const file = @as(*Node.Resource.OutputFile, @alignCast(@ptrCast(self.ptr)));
+            // try file.writer.end(); // should we?
+            file.file.close(file.io);
+            self.closed = true;
+
+        }
+
+        pub fn finalize(self: *Resource, allocator: std.mem.Allocator) void {
+            // std.debug.print("running finalizer\n", .{});
             switch (self.resourceType) {
-                .stdout => {
-                    allocator.destroy(@as(*Stdout, @alignCast(@ptrCast(self.ptr))));
+                .outputFile => {
+                    allocator.destroy(@as(*OutputFile, @alignCast(@ptrCast(self.ptr))));
                 },
             }
         }
@@ -515,14 +650,27 @@ pub const NodeBuilder = struct {
         try self.vm.stack.push(_nil);
     }
 
+    // pub fn newProcFromParams(self: *NodeBuilder, params: NodePtr) !void {
+    //     const xs = params.cast(.vector).xs;
+    //     var ps = try self.allocator.alloc(Node.Procedure.Params, xs.len);
+    //     defer self.allocator.free(ps);
+    //     for (xs, 0..) |x, i| {
+    //         ps[i] = .{
+    //             .code = @intCast(x.head().getIntValue()),
+    //             .varargs = (try x.second()).getBoolValue(),
+    //             .numArgs = @intCast((try x.third()).getIntValue()),
+    //         };
+    //     }
+    //     return self.newProc(ps);
+    // }
 
-    pub fn newProc(self: *NodeBuilder, offset: u32, varargs: bool, numArgs: u32) !void {
+    pub fn newProc(self: *NodeBuilder, params: []const Node.Procedure.Params) !void {
         if (self.vm.numObjects >= self.vm.maxObjects) {
             self.vm.gc();
         }
         self.vm.stats.numAllocs +%= 1;
         const l = try self.allocator.create(Node.Procedure);
-        l.* = .{ .code = offset,  .env =  try self.vm.stack.pop(), .varargs = varargs, .numArgs = numArgs };
+        l.* = .{ .params = try self.allocator.dupe(Node.Procedure.Params, params),  .env =  try self.vm.stack.pop()};
         l.base.next = self.vm.lastNode;
         const ptr = NodePtr.init(&l.base, .{ .id = .procedure });
         self.vm.lastNode = ptr;
@@ -617,7 +765,20 @@ pub const NodeBuilder = struct {
         try self.vm.stack.push(ptr);
     }
 
-    pub fn newResource(self: *NodeBuilder, metadata: ?NodePtr, resourceType: Node.Resource.ResourceType, pointer: *anyopaque) void {
+    pub fn newOutputFile(self: *NodeBuilder, file: std.Io.File, metadata: ?NodePtr) !void {
+        const outputFile = try self.allocator.create(Node.Resource.OutputFile);
+        errdefer self.allocator.destroy(outputFile);
+
+        outputFile.* = .{
+            .io = self.vm.io,
+            .file = file,
+        };
+        outputFile.writer = outputFile.file.writer(self.vm.io, &outputFile.buffer);
+
+        try self.newResource(metadata, .outputFile , outputFile);
+    }
+
+    pub fn newResource(self: *NodeBuilder, metadata: ?NodePtr, resourceType: Node.Resource.ResourceType, pointer: *anyopaque) !void {
         if (self.vm.numObjects >= self.vm.maxObjects) {
             self.vm.gc();
         }
@@ -629,7 +790,7 @@ pub const NodeBuilder = struct {
             .ptr = pointer,
         };
         r.base.next = self.vm.lastNode;
-        const ptr = NodePtr.init(&r.base, .{ .id = .primitive });
+        const ptr = NodePtr.init(&r.base, .{ .id = .resource });
         self.vm.lastNode = ptr;
         self.vm.numObjects += 1;
         try self.vm.stack.push(ptr);

@@ -26,8 +26,8 @@
 ;; also clojure and scala have hamt dictionaries
 ;; https://blog.higher-order.net/2009/09/08/understanding-clojures-persistenthashmap-deftwice.html
 
-(define (call-with-current-continuation f) (call/cc f))
-(define (call/cc f) (call/cc f))
+;; (define (call-with-current-continuation f) (call/cc f))
+;; (define (call/cc f) (call/cc f))
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
 (define (cdar x) (cdr (car x)))
@@ -58,10 +58,47 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
+(define *current-output-port* (createStdout))
+(define (current-output-port) *current-output-port*)
 
-(define (newline) (newline))
 
-(define (call/cc x) (call/cc x))
+;; (write-string string port start) procedure
+;; (write-string string port start end ) procedure
+(define writeString
+  (case-lambda 
+    [(s) (writeString2 s (current-output-port))]
+    [(s p) (writeString2 s p)]))
+
+(define newline 
+  (case-lambda 
+    [() (newline1 (current-output-port))]
+    [(p) (newline1 p)]))
+
+(define display
+  (case-lambda 
+    [(x) (display2 x (current-output-port))]
+    [(x p) (display2 x p)]))
+
+(define write
+  (case-lambda 
+    [(x) (write2 x (current-output-port))]
+    [(x p) (write2 x p)]))
+
+(define write-u8
+  (case-lambda 
+    [(x) (writeU82 x (current-output-port))]
+    [(x p) (writeU82 x p)]))
+
+(define displaynl
+  (case-lambda 
+    [(x) (display2 x (current-output-port)) (newline)]
+    [(x p) (display2 x p) (newline p)]))
+
+(define flush-output-port
+  (case-lambda 
+    [() (flush-output-port1 (current-output-port))]
+    [(p) (flush-output-port1 p)]))
+
 (define (read x) (read x))
 
 ;; temprorary define only binary functions
@@ -85,9 +122,8 @@
 (define (not x) (not x))
 
 
-(define (display x) (display x))
-(define (displaynl x) (displaynl x))
-(define (print x) (print x))
+;; (define (displaynl x) (displaynl x))
+;; (define (print x) (print x))
 
 (define (car a ) (car a ))
 (define (cdr a ) (cdr a ))
@@ -157,11 +193,24 @@
             (if (null? (tail xs)) (head xs)
             (append2 (head xs) (apply append (tail xs))))))
 
-(define (map f lst)
+;; (define (map f lst)
+;;   (cond
+;;     [(empty? lst) empty]
+;;     [else (cons (f (first lst))
+;;                 (map f (rest lst)))]))
+
+(define (map1 f lst)
   (cond
     [(empty? lst) empty]
     [else (cons (f (first lst))
-                (map f (rest lst)))]))
+                (map1 f (rest lst)))]))
+(define (map f . xs)
+  (cond 
+    [(empty? (head xs)) empty]
+    [else (cons (apply f (map1 car xs)) 
+                (apply map (cons f (map1 cdr xs))))]
+    ))
+
 ;;
 ;;
 (define (memv x xs) 
@@ -374,6 +423,55 @@
     (begin 
       (set! gensym-id (+ 1 i))
       (string->symbol (string-append "gensym-" (number->string i))))))
+
+
+
+;; 
+(define dynamic-wind #f)
+(define call/cc #f)
+(define call-with-current-continuation call/cc)
+(let ((winders '()))
+  (define common-tail
+    (lambda (x y)
+      (let ((lx (length x)) (ly (length y)))
+        (do ((x (if (> lx ly) (list-tail x (- lx ly)) x) (cdr x))
+             (y (if (> ly lx) (list-tail y (- ly lx)) y) (cdr y)))
+            ((eq? x y) x)))))
+  (define do-wind
+    (lambda (new)
+      (let ((tail (common-tail new winders)))
+        (let f ((l winders))
+          (if (not (eq? l tail))
+              (begin
+                (set! winders (cdr l))
+                ((cdar l))
+                (f (cdr l)))))
+        (let f ((l new))
+          (if (not (eq? l tail))
+              (begin
+                (f (cdr l))
+                ((caar l))
+                (set! winders l)))))))
+  (set! call/cc
+      (lambda (f)
+        (raw-call/cc (lambda (k)
+             (f (let ((save winders))
+                  (lambda (x)
+                    (if (not (eq? save winders)) (do-wind save))
+                    (k x))))))))
+  (set! call-with-current-continuation call/cc)
+  (set! dynamic-wind
+    (lambda (in body out)
+      (in)
+      (set! winders (cons (cons in out) winders))
+      (let ((ans (body)))
+        (set! winders (cdr winders))
+        (out)
+        ans))))
+
+
+
+
 
 ;; fixme: looks like cc should accept N arguments
 (define (values . things)
@@ -780,7 +878,7 @@
 (define-macro (unless test . branch)
     (list 'if
           (list 'not test)
-          (cons 'begin branch)))
+          (cons 'begin branch) '(begin)))
 ;; ;; ;;
 ;; (when (zero? 0) (display "x"))
 ;; ;; ;; (if ((zero? x ) ) (begin ((display "x" ) (display " = " ) (display "zero" ) (newline ) ) ) )
@@ -1112,3 +1210,317 @@
                  (and (vector? x)
                       (eqv? (vector-ref x 0) ',s)))))))))
 
+
+;; (define-syntax fluid-let
+;;   (syntax-rules ()
+;;     ((_ ((x v)) e1 e2 ...)
+;;      (let ((y v))
+;;        (let ((swap (lambda () (let ((t x)) (set! x y) (set! y t)))))
+;;          (dynamic-wind swap (lambda () e1 e2 ...) swap))))))
+
+;; (define-macro (fluid-let xexe . body)
+;;     (let ((xx (map car xexe))
+;;           (ee (map cadr xexe))
+;;           (old-xx (map (lambda (ig) (gensym)) xexe))
+;;           (result (gensym)))
+;;       `(let ,(map (lambda (old-x x) `(,old-x ,x)) 
+;;                   old-xx xx)
+;;          ,@(map (lambda (x e)
+;;                   `(set! ,x ,e)) 
+;;                 xx ee)
+;;          (dynamic-wind swap (lambda () ,@body) swap ))))
+;; (let ((,result (begin ,@body)))
+;;            ,@(map (lambda (x old-x)
+;;                     `(set! ,x ,old-x)) 
+;;                   xx old-xx)
+;;            ,result)
+
+;; incorrect in presense of continuations
+(define-macro (fluid-let xexe . body)
+    (let ((xx (map car xexe))
+          (ee (map cadr xexe))
+          (old-xx (map (lambda (ig) (gensym)) xexe))
+          (result (gensym)))
+      `(let ,(map (lambda (old-x x) `(,old-x ,x)) 
+                  old-xx xx)
+         ,@(map (lambda (x e)
+                  `(set! ,x ,e)) 
+                xx ee)
+         (let ((,result (begin ,@body)))
+           ,@(map (lambda (x old-x)
+                    `(set! ,x ,old-x)) 
+                  xx old-xx)
+           ,result))))
+
+(define-macro (coroutine x . body)
+    `(letrec ((local-control-state
+               (lambda (,x) ,@body))
+              (resume
+               (lambda (c v)
+                 (call/cc
+                  (lambda (k)
+                    (set! local-control-state k)
+                    (c v))))))
+       (lambda (v)
+         (local-control-state v))))
+
+(define make-matcher-cor
+  (lambda (tree-cor-1 tree-cor-2)
+    (coroutine dummy-init-arg
+      (let loop ()
+        (let ((leaf1 (resume tree-cor-1 'get-a-leaf))
+              (leaf2 (resume tree-cor-2 'get-a-leaf)))
+          (if (eqv? leaf1 leaf2)
+              (if (null? leaf1) #t (loop))
+              #f))))))
+
+(define make-leaf-gen-cor
+  (lambda (tree matcher-cor)
+    (coroutine dummy-init-arg
+      (let loop ((tree tree))
+        (cond ((null? tree) 'skip)
+              ((pair? tree)
+               (loop (car tree))
+               (loop (cdr tree)))
+              (else
+               (resume matcher-cor tree))))
+      (resume matcher-cor '()))))
+
+(define same-fringe?
+  (lambda (tree1 tree2)
+    (letrec ((tree-cor-1
+              (make-leaf-gen-cor
+               tree1
+               (lambda (v) (matcher-cor v))))
+             (tree-cor-2
+              (make-leaf-gen-cor
+               tree2
+               (lambda (v) (matcher-cor v))))
+             (matcher-cor
+              (make-matcher-cor
+               (lambda (v) (tree-cor-1 v))
+               (lambda (v) (tree-cor-2 v)))))
+      (matcher-cor 'start-the-ball-rolling))))
+(define *rain-prob* 0.4)
+(define *max-num-walks* (* 365 2 5))
+(define make-location-cor
+  (lambda (other-location-cor manager-cor)
+    (coroutine v
+      (let ((num-umbrellas 1))
+        (let loop ((umbrella? (car v))
+                   (walks-so-far (cadr v)))
+          (when umbrella?
+            (set! num-umbrellas (+ num-umbrellas 1)))
+          (cond ((>= walks-so-far *max-num-walks*)
+                 (resume manager-cor walks-so-far))
+                ((< (random) *rain-prob*)
+                 (cond ((> num-umbrellas 0)
+                        (set! num-umbrellas
+                          (- num-umbrellas 1))
+                        (apply loop
+                          (resume other-location-cor
+                                  (list #t
+                                        (+ walks-so-far 1)))))
+                       (else
+                         (apply loop
+                           (resume manager-cor walks-so-far)))))
+                (else
+                  (apply loop
+                    (resume other-location-cor
+                            (list #f (+ walks-so-far 1)))))))))))
+
+(define make-manager-cor
+  (lambda (home-cor)
+    (coroutine dummy-init-arg
+      (resume home-cor (list #f 0)))))
+
+
+
+
+
+
+(define umbrella-trial
+  (lambda (rain-prob)
+    (lambda ()
+      (when (number? rain-prob) (set! *rain-prob* rain-prob))
+        (letrec ((home-cor (make-location-cor
+                             (lambda (v) (office-cor v))
+                             (lambda (v) (manager-cor v))))
+                 (office-cor (make-location-cor
+                               (lambda (v) (home-cor v))
+                               (lambda (v) (manager-cor v))))
+                 (manager-cor (make-manager-cor
+                                (lambda (v) (home-cor v)))))
+          (manager-cor 'start-the-ball-rolling)
+           )
+      ; the letrec expression goes here
+      )))
+
+(define *num-trials* 1000)
+
+(define monte-carlo
+  (lambda (experiment)
+    (let loop ((i 0) (acc 0.0))
+      (if (= i *num-trials*)
+          (/ acc *num-trials*)
+          (loop (+ i 1) (+ acc (experiment)))))))
+
+
+(define *exception-handler* '())
+(define (catch tag body)
+  (call/cc
+    (lambda (k)
+      ;; Save the 'catch' continuation (k) in a global/dynamic handler list
+      ;; associated with 'tag'. For a simple example, we assume a single,
+      ;; global handler for demonstration purposes. A real implementation
+      ;; would use a dynamic environment or similar mechanism.
+      (let ((old-handler *exception-handler*)) ; Pseudo-code for dynamic binding
+        (set! *exception-handler* (cons (cons tag  k) old-handler))
+        (let ((result (body)))
+          ;; If body finishes normally, restore the old handler and return result
+          (set! *exception-handler* old-handler)
+          result)))))
+
+(define (throw tag value)
+  ;; Find the most recent handler associated with 'tag'
+  (let ((handler (assoc tag *exception-handler*))) ; Pseudo-code
+    (if handler
+        ;; Invoke the captured continuation with the thrown value
+        ((cdr handler) value)
+        ;; No handler found, perhaps raise a real error
+        (error "Uncaught exception" tag))))
+
+
+(define (test-ex)
+  (catch 5 (lambda () (throw 5 3)))
+
+  )
+
+;; (with-exception-handler handler thunk )
+;; (raise obj ) 
+
+(define *current-exception-handler* #f)
+
+;; wrong, should use continuation
+(define (with-exception-handler handler thunk) 
+  (call/cc 
+    (lambda (k) 
+    (let ((old-handler *current-exception-handler*)) 
+      (set! *current-exception-handler* handler)
+      (let ((result (thunk))) 
+        (set! *current-exception-handler* old-handler)
+        result)))))
+
+(define (raise obj)
+  (let ((handler *current-exception-handler*)) 
+    (if handler
+        ;; Invoke the captured continuation with the thrown value
+        (handler obj)
+        ;; No handler found, perhaps raise a real error
+        (error "Uncaught exception" obj))))
+
+
+(define (test-raise)
+  (with-exception-handler (lambda (err) (displaynl err)) (lambda () (raise "error")))
+
+  )
+;; https://code.call-cc.org/svn/chicken-eggs/release/5/simple-exceptions/trunk/simple-exceptions.scm
+;; ;;; R6RS and R7RS high-level exception-handler
+;; (define-syntax guard
+;;   (syntax-rules ()
+;;     ((_ (exn cond-clause . cond-clauses) xpr . xprs)
+;;      (handle-exceptions exn (cond cond-clause . cond-clauses)
+;;                         xpr . xprs))))
+
+;; (define (with-exn-handler handler thunk)
+;;   ((call-with-current-continuation
+;;      (lambda (k)
+;;        (with-exception-handler ; Chicken's handler
+;;          (lambda (exn)
+;;            (k (lambda () (handler exn))))
+;;          thunk)))))
+
+
+
+(define-macro (delay expr)
+     `(make-promise (lambda () ,expr)))
+
+
+(define make-promise
+  (lambda (p)
+    (let ([val #f] [set? #f])
+      (lambda ()
+        (unless set?
+          (let ([x (p)])
+            (unless set?
+              (set! val x)
+              (set! set? #t))))
+        val))))
+
+
+(define force
+  (lambda (promise)
+    (promise)))
+
+
+;; (define call/cc call/cc)
+;; (define values #f)
+;; (define call-with-values #f)
+;; (let ((magic (cons 'multiple 'values)))
+;;   (define magic?
+;;     (lambda (x)
+;;       (and (pair? x) (eq? (car x) magic))))
+;;
+;;   (set! call/cc
+;;     (let ((primitive-call/cc call/cc))
+;;       (lambda (p)
+;;         (primitive-call/cc
+;;           (lambda (k)
+;;             (p (lambda args
+;;                  (k (apply values args)))))))))
+;;
+;;   (set! values
+;;     (lambda args
+;;       (if (and (not (null? args)) (null? (cdr args)))
+;;           (car args)
+;;           (cons magic args))))
+;;
+;;   (set! call-with-values
+;;     (lambda (producer consumer)
+;;       (let ((x (producer)))
+;;         (if (magic? x)
+;;             (apply consumer (cdr x))
+;;             (consumer x))))))
+
+;; (define for-each
+;;   (lambda (f ls . more)
+;;     (do ((ls ls (cdr ls)) (more more (map cdr more)))
+;;         ((null? ls))
+;;         (apply f (car ls) (map car more)))))
+
+
+
+
+;; (define-syntax try
+;;   (syntax-rules ()
+;;         ((_ handler throw chunk)
+;;          (call/cc (lambda (catch)
+;;                 (let ((throw (lambda (exc) (catch (handler exc)))))
+;;                   chunk))))))
+;; (define (div p q)
+;;   (try 
+;;     ;; Error processing
+;;     (lambda (error) (printf "Error: ~s~n" error) error)
+;;
+;;     ;; Error my be thrown with keyword "throw"
+;;     throw
+;;
+;;     ;;Actual code to run
+;;      (if (= q 0)
+;;     ;; Oh noes, error!
+;;         (throw "Division by zero")
+;;     ;; All ok, do the work
+;;      (/ p q))))
+;;
+;; (printf "1/0: ~s~n" (div 1 0))
+;; (printf "1/2: ~s~n" (div 1 2))

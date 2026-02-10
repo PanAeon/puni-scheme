@@ -473,26 +473,6 @@ pub fn _div(vm: *VM) anyerror!void {
         try vm.bldr.newIntNumber(res);
     }
 }
-pub fn _display(vm: *VM) anyerror!void {
-    const a = try vm.stack.pop();
-    a.print(); // todo: prettyprint..
-    try vm.stack.push(_void);
-}
-pub fn _displaynl(vm: *VM) anyerror!void {
-    const a = try vm.stack.pop();
-    a.print(); // todo: prettyprint..
-    std.debug.print("\n", .{});
-    try vm.stack.push(_void);
-}
-pub fn _newline(vm: *VM) anyerror!void {
-    std.debug.print("\n", .{});
-    try vm.stack.push(_void);
-}
-pub fn _print(vm: *VM) anyerror!void {
-    const a = try vm.stack.pop();
-    a.print(); // todo: prettyprint..
-    try vm.stack.push(_void);
-}
 
 
 
@@ -671,8 +651,9 @@ pub fn _inspect(vm: *VM) anyerror!void {
         return error.IllegalArgument;
     }
     const p = x.cast(.procedure);
-    std.debug.print("Procedure {} {} \n", .{p.numArgs, p.varargs});
-    var i = p.code;
+    std.debug.print("Procedure {any} \n", .{p.params});
+    for (p.params) |param| {
+    var i = param.code;
     while (true) :(i+=1) {
         const instr = vm.code.items[i];
         std.debug.print("{d}:\t ", .{i});
@@ -680,6 +661,7 @@ pub fn _inspect(vm: *VM) anyerror!void {
         if (instr == .Return) {
             break;
         }
+    }
     }
 
     try vm.stack.push(_void);
@@ -723,7 +705,7 @@ pub fn _callcc(vm: *VM) anyerror!void {
 
 
     try vm.bldr.newEnv(1, true);
-    try vm.bldr.newProc(vm.ccCodeLoc, false, 1);
+    try vm.bldr.newProc(&.{.{.code = vm.ccCodeLoc, .varargs = false, .numArgs = 1}});
     const cc = try vm.stack.pop();
     vm.protect(cc);
     try vm.save(1);
@@ -733,7 +715,88 @@ pub fn _callcc(vm: *VM) anyerror!void {
     try vm.jcall(1);
 }
 
-pub const newline: Prim = .{.name = "newline", .exec = _newline,  .numArgs = 0};
+pub fn _random(vm: *VM) anyerror!void {
+    const rand = vm.prng.random();
+    try vm.bldr.newFloatNumber(rand.float(f32));
+}
+
+pub fn _createStdout(vm: *VM) anyerror!void {
+    try vm.bldr.newOutputFile(std.Io.File.stdout(), null);
+}
+
+pub fn _writeString2(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const str = try vm.stack.pop();
+    if (str.getId() != .string) {
+        return error.IllegalArgument;
+    }
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try writer.print("{s}", .{str.cast(.string).s});
+    try writer.flush();
+
+    try vm.stack.push(_void);
+}
+pub fn _newline1(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try writer.print("\n", .{});
+    try writer.flush();
+
+    try vm.stack.push(_void);
+}
+
+pub fn _display2(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const a = try vm.stack.pop();
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try a.display(writer); // todo: prettyprint..
+    try writer.flush();
+    try vm.stack.push(_void);
+}
+pub fn _write2(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const a = try vm.stack.pop();
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try a.print(writer); // todo: prettyprint..
+    try writer.flush();
+    try vm.stack.push(_void);
+}
+pub fn _writeU82(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const b = try (try vm.stack.pop()).tryGetIntValue();
+    if (b < 0 or b > 255) {
+        return error.IllegalArgument;
+    }
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try writer.writeByte(@intCast(b));
+    // try writer.flush();
+    try vm.stack.push(_void);
+}
+
+pub fn _flushOutputPort1(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    const writer = try (try port.tryCast(.resource)).getWriter();
+    try writer.flush();
+    try vm.stack.push(_void);
+}
+pub fn _closeOutputPort(vm: *VM) anyerror!void {
+    const port = try vm.stack.pop();
+    try (try port.tryCast(.resource)).close();
+    try vm.stack.push(_void);
+}
+// pub fn _displaynl(vm: *VM) anyerror!void {
+//     const a = try vm.stack.pop();
+//     a.print(); // todo: prettyprint..
+//     std.debug.print("\n", .{});
+//     try vm.stack.push(_void);
+// }
+// pub fn _print(vm: *VM) anyerror!void {
+//     const a = try vm.stack.pop();
+//     a.print(); // todo: prettyprint..
+//     try vm.stack.push(_void);
+// }
+
+pub const newline1: Prim = .{.name = "newline", .exec = _newline1,  .numArgs = 1};
 
 pub const @"+": Prim = .{.name = "+", .exec = add,  .varargs = true};
 pub const @"-": Prim = .{.name = "-", .exec = sub,  .varargs = true};
@@ -762,12 +825,9 @@ pub const @"real?": Prim = .{.name = "real?", .exec = isReal,  .numArgs = 1};
 pub const not: Prim = .{.name = "not", .exec = _not,  .numArgs = 1};
 pub const inspect: Prim = .{.name = "inspect", .exec = _inspect,  .numArgs = 1};
 
-pub const @"call/cc": Prim = .{.name = "call/cc", .exec = _callcc,  .numArgs = 1};
+pub const @"raw-call/cc": Prim = .{.name = "raw-call/cc", .exec = _callcc,  .numArgs = 1};
 
 
-pub const display: Prim = .{.name = "display", .exec = _display,  .numArgs = 1};
-pub const displaynl: Prim = .{.name = "displaynl", .exec = _displaynl,  .numArgs = 1};
-pub const print: Prim = .{.name = "print", .exec = _print,  .numArgs = 1};
 
 
 pub const car: Prim = .{.name = "car", .exec = _car,  .numArgs = 1};
@@ -802,6 +862,19 @@ pub const @"vector-length": Prim =    .{.name = "vector-length",    .exec = _vec
 pub const @"vector-ref": Prim =    .{.name = "vector-length",    .exec = _vectorRef, .numArgs = 2};
 pub const @"vector-set!": Prim =    .{.name = "vector-set!",    .exec = _vectorSet, .numArgs = 3};
 
+pub const random: Prim = .{.name = "random", .exec = _random,  .numArgs = 0};
+// IO
+pub const createStdout: Prim = .{.name = "createStdout", .exec = _createStdout,  .numArgs = 0};
+pub const writeString2: Prim = .{.name = "writeString2", .exec = _writeString2,  .numArgs = 2};
+
+pub const display2: Prim = .{.name = "display2", .exec = _display2,  .numArgs = 2};
+pub const write2: Prim = .{.name = "write2", .exec = _write2,  .numArgs = 2};
+pub const writeU82: Prim = .{.name = "writeU82", .exec = _writeU82,  .numArgs = 2};
+pub const @"flush-output-port1": Prim = .{.name = "flush-output-port1", .exec = _flushOutputPort1,  .numArgs = 1};
+pub const @"close-output-port": Prim = .{.name = "close-output-port", .exec = _closeOutputPort,  .numArgs = 1};
+// pub const displaynl: Prim = .{.name = "displaynl", .exec = _displaynl,  .numArgs = 1};
+// pub const print: Prim = .{.name = "print", .exec = _print,  .numArgs = 1};
+//
 // ------------------------------ macros --------------------------------------
 
 
@@ -883,7 +956,7 @@ pub fn _define(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
         try vm.bldr.appendToList();
         try vm.stack.push(try params.tryHead());
         try vm.bldr.appendToList();
-        try vm.bldr.newAtom("set!");
+        try vm.bldr.newAtom("put!");
         try vm.bldr.appendToList();
         const res = try vm.stack.pop();
         try vm.protectCompile.push(res);
@@ -904,7 +977,7 @@ pub fn _define(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
 
         try vm.stack.push(name);
         try vm.bldr.appendToList();
-        try vm.bldr.newAtom("set!");
+        try vm.bldr.newAtom("put!");
         try vm.bldr.appendToList();
 
         const res = try vm.stack.pop();

@@ -19,7 +19,7 @@ const Prim = Primitives.Prim;
 const Compiler = @import("Compiler.zig");
 const VMError = error{ ExpectedList, StackOverflow, StackUnderflow, UnknownName, IllegalDefine, MultipleExprsAfterId, NotAList, NotCallable, ArityMismatch, NotExhastiveMatch, IllegalArgument, AssignmentDisallowed, InvalidSyntaxDefinition, NotImplemented, UserError, ArgsTooLong, MissingElseBranch };
 
-pub const MaxStack: usize = 1024;
+pub const MaxStack: usize = 10024;
 pub const MaxProtectStack: usize = 1024;
 pub const InitialGCThreshold: usize = 8; // 8
 
@@ -31,6 +31,7 @@ const InstructionTag = enum {
     LocalSet,
     GVar,
     GSet,
+    GPut,
     FreeVar, // search in the current closure
     FreeVarIndirect,
     FreeSet,
@@ -44,6 +45,7 @@ const InstructionTag = enum {
     JCall,
     Save,
     Fn,
+    FnParams,
     Primitive,
     MSet,
     CC,
@@ -56,6 +58,7 @@ pub const Instruction = union(InstructionTag) {
     LocalSet: u32,
     GVar: NodePtr,
     GSet: NodePtr,
+    GPut: NodePtr,
     FreeVar: struct {u32, u32},
     FreeVarIndirect: struct {u32, u32},
     FreeSet: struct{u32, u32},
@@ -69,16 +72,20 @@ pub const Instruction = union(InstructionTag) {
     JCall: u32, // num of arguments
     Save: i64, // return address and closure
     Fn: Function, // create closure from arg and current env, push result on the stack
+    FnParams: FunctionParams,
     Primitive: *const Prim,
     MSet: NodePtr,
     CC,
     Halt,
 
     const Function = struct {
+        numParams: u15,
+        parentNumArgs:u15,
+    };
+    const FunctionParams = struct {
         code: u32,
         numArgs: u16,
-        parentNumArgs:u15,
-        varargs: bool,
+        isVarargs: bool,
     };
 
     pub fn print(self: Instruction) void {
@@ -88,9 +95,7 @@ pub const Instruction = union(InstructionTag) {
                 .TJump =>  |offset| std.debug.print("TJump {d}\n", .{offset}),
                 .FJump =>  |offset| std.debug.print("FJump {d}\n", .{offset}),
                 .Const => |ptr|  { 
-                     std.debug.print("Const ", .{});
-                     ptr.print();
-                     std.debug.print("\n", .{});
+                     ptr.debugprint("Const ");
                  },
                 .Primitive => |p| std.debug.print("Primitive {s}\n", .{p.name}),
                 .LocalVar => |idx|   std.debug.print("Localvar {d}\n", .{idx}),
@@ -98,12 +103,14 @@ pub const Instruction = union(InstructionTag) {
                 .LocalSet => |idx|  std.debug.print("LocalSet {d}\n", .{idx}),
                 .GVar => |p|  std.debug.print("GVar {s}\n", .{p.cast(.atom).name}),
                 .GSet => |p|  std.debug.print("GSet {s}\n", .{p.cast(.atom).name}),
+                .GPut => |p|  std.debug.print("GPut {s}\n", .{p.cast(.atom).name}),
                 .FreeVar => |offset|   std.debug.print("FreeVar {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .FreeVarIndirect => |offset|   std.debug.print("FreeVarIndirect {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .FreeSet => |offset|  std.debug.print("FreeSet {d} {d}\n", .{offset.@"0", offset.@"1"}),
                 .Box => |idx|   std.debug.print("Box {d}\n", .{idx}),
                 .Shift => |x| std.debug.print("Shift n:{d} m:{d}\n", .{x.@"0", x.@"1"}),
                 .Fn   => |x|  std.debug.print("Fn {any}\n", .{x}),
+                .FnParams   => |p|  std.debug.print("FnParams {any}\n", .{p}),
                 .Save => |addr|  std.debug.print("Save {d}\n", .{addr}),
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => |n| std.debug.print("Pop {d}\n", .{n}),
@@ -114,9 +121,9 @@ pub const Instruction = union(InstructionTag) {
     }
 };
 
-comptime {
-    std.debug.assert(@sizeOf(Instruction) == 16);
-}
+// comptime {
+//     std.debug.assert(@sizeOf(Instruction) == 16);
+// }
 
 pub const VM = struct {
     allocator: std.mem.Allocator,
@@ -142,6 +149,9 @@ pub const VM = struct {
     stats: Stats = .{},
     bldr: NodeBuilder,
     ccCodeLoc: u32 = 0,
+    prng: std.Random.DefaultPrng = undefined,
+    io: std.Io,
+
 
 
     
@@ -159,7 +169,7 @@ pub const VM = struct {
         try self.code.append(self.allocator, .{ .Return = 1 });
     }
 
-    pub fn init(allocator: std.mem.Allocator, verboseGC: bool) !*VM {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, verboseGC: bool) !*VM {
         const vm = try allocator.create(VM);
         vm.* = .{
             .allocator = allocator,
@@ -174,9 +184,16 @@ pub const VM = struct {
             .verboseGC = verboseGC,
             .consAlloctor = try ConsPage.create(),
             .bldr = NodeBuilder.init(vm, allocator),
+            .io = io
         };
         vm.stats.startTime = try std.time.Instant.now();
         vm.createCC() catch @panic("can't create cc");
+        vm.prng = .init(blk: {
+            var seed: u64 = undefined;
+            const res = std.os.linux.getrandom(std.mem.asBytes(&seed), 8, 0);
+            std.debug.print("res: {d}", .{res});
+            break :blk seed;
+        });
         return vm;
     }
     pub fn destroy(self: *VM) void {
@@ -332,6 +349,7 @@ pub const VM = struct {
                     },
                     .procedure => {
                         const p = unreached.cast(.procedure);
+                        self.allocator.free(p.params);
                         self.allocator.destroy(p);
                     },
                     .nil, .void, .intNumber, .floatNumber, .bool, .char => {},
@@ -441,6 +459,15 @@ pub const VM = struct {
                 },
                 .GSet => |p| {
                     const name = (try p.tryCast(.atom)).name;
+                    if (self.globalEnv.contains(name)) {
+                       try self.globalEnv.put(name, try self.stack.pop());
+                    } else {
+                        std.debug.print("not allowed to set {s} which is undefined\n", .{name});
+                        return error.IllegalSet;
+                    }
+                },
+                .GPut => |p| {
+                    const name = (try p.tryCast(.atom)).name;
                     try self.globalEnv.put(name, try self.stack.pop());
                 },
                 .Shift => |x| { // moves top n elements m places down the stack
@@ -450,6 +477,9 @@ pub const VM = struct {
                 },
                 .Fn   => |x| {
                     try self.createProcedure(x);
+                },
+                .FnParams => {
+                    @panic("not reachable");
                 },
                 .Save => |offset| {
                     try self.save(offset);
@@ -508,22 +538,41 @@ pub const VM = struct {
                     const f = try _f.tryCast(.procedure);
                     // std.debug.print("stack size: {d}\n", .{self.stack.size});
                     self.frame = @intCast(self.stack.size - numArgs - 3);
-                    if (f.varargs) { // TODO: think about varargs..
-                        if (numArgs + 1 < f.numArgs) {
-                            return error.ArityMismatch;
-                        }
-                        const numLast = numArgs + 1 - f.numArgs ;
-                        try self.bldr.newList();
-                        for (0..numLast) |_| {
+                    var code: u32 = std.math.maxInt(u32);
+                    for (f.params) |p| {
+                       if (p.varargs and numArgs >= p.numArgs) {
+                          code = p.code;
+                          const numLast = numArgs + 1 - p.numArgs ;
+                          try self.bldr.newList();
+                          for (0..numLast) |_| {
                             try self.bldr.appendToListRev();
-                        }
-                    } else {
-                        if (f.numArgs != numArgs) {
-                            return error.ArityMismatch;
-                        }
+                          }
+                          break;
+                       } else if (p.numArgs == numArgs) {
+                          code = p.code;
+                          break;
+                       }
+                    
                     }
+                    if (code == std.math.maxInt(u32)) {
+                        return error.ArityMismatch;
+                    }
+                    // if (f.varargs) { // TODO: think about varargs..
+                    //     if (numArgs + 1 < f.numArgs) {
+                    //         return error.ArityMismatch;
+                    //     }
+                    //     const numLast = numArgs + 1 - f.numArgs ;
+                    //     try self.bldr.newList();
+                    //     for (0..numLast) |_| {
+                    //         try self.bldr.appendToListRev();
+                    //     }
+                    // } else {
+                    //     if (f.numArgs != numArgs) {
+                    //         return error.ArityMismatch;
+                    //     }
+                    // }
                     self.closure = f.env;
-                    self.ip = @as(i64, @intCast(f.code)) - 1;
+                    self.ip = @as(i64, @intCast(code)) - 1;
     }
 
     pub fn createProcedure(self: *VM, f: Instruction.Function) anyerror!void {
@@ -532,7 +581,22 @@ pub const VM = struct {
             try self.stack.push(self.stack.items[@intCast(self.frame + @as(i64, @intCast(i)) + 3)]);
         }
         try self.bldr.newEnv(f.parentNumArgs, true);
-        try self.bldr.newProc(@intCast(f.code), f.varargs, f.numArgs);
+        var params = try self.allocator.alloc(Node.Procedure.Params, f.numParams);
+        defer self.allocator.free(params);
+        for (0..f.numParams) |i| {
+            self.ip += 1;
+            const param = self.code.items[@intCast(self.ip)]; 
+            switch (param) {
+                .FnParams => |p| {
+                    params[i].code = p.code;
+                    params[i].numArgs = p.numArgs;
+                    params[i].varargs = p.isVarargs;
+                },
+                else => { @panic("not reachable"); }
+            }
+        }
+        // try self.bldr.newProcFromParams(f.params);
+        try self.bldr.newProc(params);
         // self.lastProc = try self.stack.head();
     }
 
@@ -661,7 +725,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var vm = try VM.init(allocator, true);
+    var vm = try VM.init(allocator, threaded.io(), true);
     defer vm.destroy();
     
 
