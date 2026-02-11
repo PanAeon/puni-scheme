@@ -1384,10 +1384,9 @@ pub fn _include(vm: *VM, _: *LexicalContext, arena: std.mem.Allocator, params: N
 
         const file = try std.Io.Dir.cwd().openFile(vm.io, path, .{});
         defer file.close(vm.io);
-        var buffer: [1024*1024]u8 = undefined;
-        const len = try std.Io.File.readPositionalAll(file, vm.io, &buffer, 0);
-        buffer[len] = 0;
-        try parser.parse(buffer[0..len :0], arena);
+        const zerobuf: [0]u8 = undefined;
+        var reader = file.reader(vm.io, &zerobuf);
+        try parser.parse(&reader.interface, arena);
     const res = try vm.stack.pop();
     return res;
 }

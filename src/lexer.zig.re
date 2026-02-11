@@ -38,28 +38,69 @@ pub const Token = struct {
         return buff[self.start..self.end];
     }
 };
+const bufsize = 4095;
 
 pub const Lexer = struct {
-    yyinput: [:0]const u8,
+    file: *std.Io.Reader,
+    yyinput: [bufsize+1] u8,
     yycursor: usize = 0,
     yymarker: usize = 0,
     yylimit: usize,
+    token: usize,
+    eof: bool,
 
-    pub fn init(text: [:0]const u8) Lexer {
-        return .{ .yyinput = text, .yylimit = text.len };
+    pub fn init(file: *std.Io.Reader) Lexer {
+        var lexer: Lexer =  .{ 
+        .file = file,
+        .yyinput = undefined,  
+        .yycursor = bufsize,
+        .yymarker = bufsize,
+        .yylimit = bufsize,
+        .token = bufsize,
+        .eof = false
+        };
+        lexer.yyinput[lexer.yylimit] = 0;
+        return lexer;
     }
 
     pub fn nextToken(self:*Lexer) LexerError!Token {
        return _nextToken(self);
     }
 };
+
+fn fill(st: *Lexer) i32 {
+    if (st.eof) { return -1; } // unexpected EOF
+
+    // Error: lexeme too long. In real life can reallocate a larger buffer.
+    if (st.token < 1) { return -2; }
+
+    // Shift buffer contents (discard everything up to the current token).
+    std.mem.copyBackwards(
+        u8, st.yyinput[0..st.yylimit - st.token], st.yyinput[st.token..st.yylimit]);
+    st.yycursor -= st.token;
+    st.yymarker = @subWithOverflow(st.yymarker, st.token)[0];
+    st.yylimit -= st.token;
+    st.token = 0;
+
+    // Fill free space at the end of buffer with new data from file.
+    st.yylimit += st.file.readSliceShort(st.yyinput[st.yylimit..bufsize]) catch 0;
+    st.yyinput[st.yylimit] = 0; // append sentinel symbol
+
+    // If read less than expected, this is the end of input.
+    st.eof = st.yylimit < bufsize;
+
+    return 0;
+}
+
 pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
    loop: while(true) {
-      const start = yyrecord.yycursor;
+      //const start = yyrecord.yycursor;
+      yyrecord.token = yyrecord.yycursor;
         %{
             re2c:encoding:utf8 = 1;
             re2c:api = record;
-            re2c:yyfill:enable = 0;
+            re2c:YYFILL = "fill(yyrecord) == 0";
+            //re2c:yyfill:enable = 0;
             re2c:eof = 0;
 
             digit = [0-9];
@@ -81,35 +122,35 @@ pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
 
             token = "." ; 
 
-            "-"?[0-9]+       { return .{ .id = .intNumber, .start = start, .end = yyrecord.yycursor}; }
-            float        { return .{ .id = .floatNumber, .start = start, .end = yyrecord.yycursor}; }
-            "("          { return .{ .id = .lparen, .start = start, .end = yyrecord.yycursor}; }
-            ")"          { return .{ .id = .rparen, .start = start, .end = yyrecord.yycursor}; }
-            "["          { return .{ .id = .lparen, .start = start, .end = yyrecord.yycursor}; }
-            "]"          { return .{ .id = .rparen, .start = start, .end = yyrecord.yycursor}; }
-            "#t"         { return .{ .id = .boolean,  .start = start, .end = yyrecord.yycursor}; }
-            "#f"         { return .{ .id = .boolean, .start = start, .end = yyrecord.yycursor}; }
-            "'"          { return .{ .id = .quote,   .start = start, .end = yyrecord.yycursor}; }
-            "`"          { return .{ .id = .quasiquote, .start = start, .end = yyrecord.yycursor}; }
-            ","          { return .{ .id = .unquote,   .start = start, .end = yyrecord.yycursor}; }
-            ",@"         { return .{ .id = .unquote_splicing,   .start = start, .end = yyrecord.yycursor}; }
-            "#'"         { return .{ .id = .syntax,   .start = start, .end = yyrecord.yycursor}; }
-            "#`"         { return .{ .id = .quasisyntax,   .start = start, .end = yyrecord.yycursor}; }
-            "#,"         { return .{ .id = .unsyntax,   .start = start, .end = yyrecord.yycursor}; }
-            "#,@"        { return .{ .id = .unsyntax_splicing,   .start = start, .end = yyrecord.yycursor}; }
-            "#"/"("      { return .{ .id = .vector, .start = start, .end = yyrecord.yycursor}; }
-            identifier   { return .{ .id = .identifier, .start = start, .end = yyrecord.yycursor}; }
-            token        { return .{ .id = .identifier, .start = start, .end = yyrecord.yycursor}; }
-            str          { return .{ .id = .string, .start = start, .end = yyrecord.yycursor}; }
-            "#\\space"   { return .{ .id = .character, .start = start, .end = yyrecord.yycursor}; }
-            "#\\newline" { return .{ .id = .character, .start = start, .end = yyrecord.yycursor}; }
-            "#\\".       { return .{ .id = .character, .start = start, .end = yyrecord.yycursor}; }
+            "-"?[0-9]+       { return .{ .id = .intNumber, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            float        { return .{ .id = .floatNumber, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "("          { return .{ .id = .lparen, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            ")"          { return .{ .id = .rparen, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "["          { return .{ .id = .lparen, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "]"          { return .{ .id = .rparen, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#t"         { return .{ .id = .boolean,  .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#f"         { return .{ .id = .boolean, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "'"          { return .{ .id = .quote,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "`"          { return .{ .id = .quasiquote, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            ","          { return .{ .id = .unquote,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            ",@"         { return .{ .id = .unquote_splicing,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#'"         { return .{ .id = .syntax,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#`"         { return .{ .id = .quasisyntax,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#,"         { return .{ .id = .unsyntax,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#,@"        { return .{ .id = .unsyntax_splicing,   .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#"/"("      { return .{ .id = .vector, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            identifier   { return .{ .id = .identifier, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            token        { return .{ .id = .identifier, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            str          { return .{ .id = .string, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#\\space"   { return .{ .id = .character, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#\\newline" { return .{ .id = .character, .start = yyrecord.token, .end = yyrecord.yycursor}; }
+            "#\\".       { return .{ .id = .character, .start = yyrecord.token, .end = yyrecord.yycursor}; }
             [ \r\n\t]+   { continue :loop; }
             comment      { continue :loop; }
             blockComment { continue :loop; }
             "\""         { return error.UnclosedString; }
-            *            { std.debug.print("unknown token: '{s}'", .{yyrecord.yyinput[start..yyrecord.yycursor]}); return error.UnknownToken; }
-            $            { return .{ .id = .eof, .start = start, .end = yyrecord.yycursor}; }
+            *            { std.debug.print("unknown token: '{s}'", .{yyrecord.yyinput[yyrecord.token..yyrecord.yycursor]}); return error.UnknownToken; }
+            $            { return .{ .id = .eof, .start = yyrecord.token, .end = yyrecord.yycursor}; }
         %}
     }
 }

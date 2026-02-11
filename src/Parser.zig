@@ -18,8 +18,8 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Parser, buff: [:0]const u8, arena: std.mem.Allocator) !void {
-        self.lexer = lex.Lexer.init(buff);
+    pub fn parse(self: *Parser, file: *std.Io.Reader, arena: std.mem.Allocator) !void {
+        self.lexer = lex.Lexer.init(file);
         self.arena = arena;
         try self.parseExprs();
     }
@@ -38,7 +38,7 @@ pub const Parser = struct {
     pub fn parseExpr(self: *Parser) anyerror!void {
         switch (self.token.id) {
             .boolean => {
-                const b = std.mem.eql(u8, "#t", self.token.slice(self.lexer.yyinput));
+                const b = std.mem.eql(u8, "#t", self.token.slice(&self.lexer.yyinput));
                 try self.vm.bldr.newBool(b);
             },
             .lparen => {
@@ -54,15 +54,15 @@ pub const Parser = struct {
                 }
             },
             .intNumber => {
-                const n = try std.fmt.parseInt(i48, self.token.slice(self.lexer.yyinput), 0);
+                const n = try std.fmt.parseInt(i48, self.token.slice(&self.lexer.yyinput), 0);
                 try self.vm.bldr.newIntNumber(n);
             },
             .floatNumber => {
-                const n = try std.fmt.parseFloat(f32, self.token.slice(self.lexer.yyinput));
+                const n = try std.fmt.parseFloat(f32, self.token.slice(&self.lexer.yyinput));
                 try self.vm.bldr.newFloatNumber(n);
             },
             .character => {
-                const c =  self.token.slice(self.lexer.yyinput);
+                const c =  self.token.slice(&self.lexer.yyinput);
                 // std.debug.print("{s}\n", .{c});
                 if (std.mem.eql(u8, "#\\newline", c )) {
                    try self.vm.bldr.newChar(10);
@@ -73,7 +73,7 @@ pub const Parser = struct {
                 }
             },
             .string => {
-                const slice = self.token.slice(self.lexer.yyinput);
+                const slice = self.token.slice(&self.lexer.yyinput);
                 var buff = try self.arena.alloc(u8, slice.len);
                 var i:u32 = 1;
                 var j:u32 = 0;
@@ -100,7 +100,7 @@ pub const Parser = struct {
                 try self.vm.bldr.newString(buff[0..j]);
             },
             .identifier => {
-                try self.vm.bldr.newAtom(self.token.slice(self.lexer.yyinput));
+                try self.vm.bldr.newAtom(self.token.slice(&self.lexer.yyinput));
             },
             .quote => {
                 self.token = try self.lexer.nextToken();
@@ -195,7 +195,7 @@ pub const Parser = struct {
             if (self.token.id == .rparen) {
                 break;
             }
-            if (self.token.id == .identifier and std.mem.eql(u8, ".", self.token.slice(self.lexer.yyinput))) {
+            if (self.token.id == .identifier and std.mem.eql(u8, ".", self.token.slice(&self.lexer.yyinput))) {
                 if (n.* == 0) {
                     return error.IllegalUseOfDot;
                 }

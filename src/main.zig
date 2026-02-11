@@ -676,8 +676,9 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
         _ = linenoise.linenoiseHistoryAdd(line);
         linenoise.linenoiseFree(line);
 
-        try lineBuffer.append(gpa, 0);
-        parser.parse(lineBuffer.items[0 .. lineBuffer.items.len - 1 :0], arena.allocator()) catch |e| {
+        var reader = std.Io.Reader.fixed(lineBuffer.items);
+        // try lineBuffer.append(gpa, 0);
+        parser.parse(&reader, arena.allocator()) catch |e| {
             switch (e) {
                 ParserError.UnmatchedParen, lex.LexerError.UnclosedString => {
                     _ = lineBuffer.pop();
@@ -780,10 +781,12 @@ pub fn main() !void {
         defer arena.deinit();
         const file = try std.Io.Dir.cwd().openFile(threaded.io(), "scheme/init.scm", .{});
         defer file.close(threaded.io());
-        var buffer: [1024*1024]u8 = undefined;
-        const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
-        buffer[len] = 0;
-        try parser.parse(buffer[0..len :0], arena.allocator());
+        const zerobuf: [0]u8 = undefined;
+        var reader = file.reader(threaded.io(), &zerobuf);
+        // var buffer: [1024*1024]u8 = undefined;
+        // const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
+        // buffer[len] = 0;
+        try parser.parse(&reader.interface, arena.allocator());
 
         var compiler = Compiler.init(arena.allocator(), allocator, vm);
         defer compiler.deinit();
