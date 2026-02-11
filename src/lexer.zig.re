@@ -73,6 +73,7 @@ pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
             identifier = (initial subsequent*) | peculiar_id;
             str = ["] ([^"\\] | [\\][^])* ["];
             comment = ";"[^\n]*;
+            blockComment = "#|"[^|]*"|#";
             // floating-point numbers
             frac  = [0-9]* "." [0-9]+ | [0-9]+ ".";
             exp   = 'e' [+-]? [0-9]+;
@@ -105,6 +106,7 @@ pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
             "#\\".       { return .{ .id = .character, .start = start, .end = yyrecord.yycursor}; }
             [ \r\n\t]+   { continue :loop; }
             comment      { continue :loop; }
+            blockComment { continue :loop; }
             "\""         { return error.UnclosedString; }
             *            { std.debug.print("unknown token: '{s}'", .{yyrecord.yyinput[start..yyrecord.yycursor]}); return error.UnknownToken; }
             $            { return .{ .id = .eof, .start = start, .end = yyrecord.yycursor}; }

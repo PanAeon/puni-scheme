@@ -129,7 +129,16 @@
 (define (cdr a ) (cdr a ))
 (define (number->string a ) (number->string a ))
 (define (string->symbol a ) (string->symbol a ))
-(define (string-append a ) (string-append a ))
+(define string-append 
+  (case-lambda 
+    [() ""]
+    [(x) (string-append x)]
+    [(x y) (string-append x y)]
+    [(x y z) (string-append x y z)]
+    [(x y z v) (string-append x y z v)]
+    [(x y z v a) (string-append x y z v a)]
+    [(x y z v a b) (string-append x y z v a b)]
+    ))
 
 
 (define (eq? a b) (eq? a b))
@@ -374,6 +383,10 @@
 ;; ;;         `set! ,pr (λ xs `(,pr ,@xs)))
 ;; ;; (define (+ . xs)  `(+ ,@xs))
 ;;
+
+(define (foobaz . xs) xs)
+(define fooball (lambda xs xs))
+
 (define-macro (and . xs) 
     (cond [(null? xs) #t]
           [(null? (tail xs)) (head xs)]
@@ -474,9 +487,10 @@
 
 
 ;; fixme: looks like cc should accept N arguments
-(define (values . things)
-   (call-with-current-continuation
-       (λ (cont) (apply cont things))))
+;; (define (values . things)
+;;    (call-with-current-continuation
+;;        (λ (cont) (apply cont things))))
+
 ;; it's working!!!
 ;; (let* ((yin
 ;;          ((λ (cc) (display #\@) cc) (call/cc (λ (c) c))))
@@ -1479,24 +1493,33 @@
 ;;             (p (λ args
 ;;                  (k (apply values args)))))))))
 ;;
-;;   (set! values
-;;     (λ args
-;;       (if (and (not (null? args)) (null? (cdr args)))
-;;           (car args)
-;;           (cons magic args))))
-;;
-;;   (set! call-with-values
-;;     (λ (producer consumer)
-;;       (let ((x (producer)))
-;;         (if (magic? x)
-;;             (apply consumer (cdr x))
-;;             (consumer x))))))
+
+(define magic "__magic")
+(define (magic? x) (and (pair? x) (equal? (car x) "__magic")))
+
+  (define values
+    (λ args
+      (if (and (not (null? args)) (null? (cdr args)))
+          (car args)
+          (cons magic args))))
+
+  (define call-with-values
+    (λ (producer consumer)
+      (let ((x (producer)))
+        (if (magic? x)
+            (apply consumer (cdr x))
+            (consumer x)))))
 
 ;; (define for-each
 ;;   (λ (f ls . more)
 ;;     (do ((ls ls (cdr ls)) (more more (map cdr more)))
 ;;         ((null? ls))
-;;         (apply f (car ls) (map car more)))))
+        ;; (apply f (car ls) (map car more)))))
+(define (for-each f lst)
+  (cond
+    [(empty? lst) empty]
+    [else (begin (f (first lst))
+                (for-each f (rest lst)))]))
 
 
 
@@ -1524,3 +1547,65 @@
 ;;
 ;; (printf "1/0: ~s~n" (div 1 0))
 ;; (printf "1/2: ~s~n" (div 1 2))
+;; (include "test.scm")
+
+(define sc-expand #f)
+(define $syntax-dispatch #f)
+(define identifier? #f)
+(define datum->syntax #f)
+(define syntax->datum #f)
+(define generate-temporaries #f)
+(define free-identifier=? #f)
+(define bound-identifier=? #f)
+(define syntax-error #f)
+(define make-variable-transformer #f)
+
+
+(define (reverse ls)
+  (let loop ((remaining ls) (result '()))
+    (if (null? remaining)
+        result
+        (loop (cdr remaining) (cons (car remaining) result))))) 
+
+
+(define (void) (begin))
+
+;; (define values (lambda x x))
+
+;; (define call-with-values
+;;     (lambda (producer consumer)
+;; 	    (apply consumer (producer))))
+
+(include "syntax.pp")
+
+(define *syntax-expand* sc-expand)
+
+(define-syntax sequence
+          (syntax-rules ()
+            [(_ e0 e1 ...) (begin e0 e1 ...)]))
+
+(define-syntax do1
+  (lambda (x)
+    (syntax-case x ()
+      [(_ (binding ...) (test res ...) expr ...)
+       (with-syntax ([((var val update) ...)
+                      (map (lambda (b)
+                             (syntax-case b ()
+                               [(var val) #'(var val var)]
+                               [(var val update) #'(var val update)]))
+                           #'(binding ...))])
+         #'(let doloop ([var val] ...)
+             (if test
+                 (begin (if #f #f) res ...)
+                 (begin expr ... (doloop update ...)))))])))
+
+(define-syntax loop
+  (lambda (x)
+    (syntax-case x ()
+      [(_ e ...)
+       #'(call/cc
+           (lambda (break)
+             (let f () e ... (f))))])))
+
+
+;; (include "syntax.ss")

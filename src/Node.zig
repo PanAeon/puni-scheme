@@ -327,7 +327,7 @@ pub const NodePtr = struct {
                 // }
                 // p.args.print();
                 // p.body.printList();
-                try writer.print("proc", .{});
+                try writer.print("proc {any}", .{n.cast(.procedure).params});
             },
             .string => {
                 const b = n.cast(.string);

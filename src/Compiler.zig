@@ -7,6 +7,7 @@ const Node = @import("Node.zig").Node;
 const _true = @import("Node.zig")._true;
 const _false = @import("Node.zig")._false;
 const _void = @import("Node.zig")._void;
+const _nil = @import("Node.zig")._nil;
 
 const Compiler = @This();
 
@@ -118,10 +119,20 @@ pub fn compile(self: *Compiler) anyerror!i64 {
     var lexicalCtx: LexicalCtx = .{};
     const codeRestore = self.vm.code.items.len;
     const dataRestore = self.vm.data.items.len;
-    const node = try self.vm.stack.pop();
+    var node = try self.vm.stack.pop();
     try self.vm.protectCompile.push(node);
     defer self.vm.protectCompile.clear();
     // node.debugprint("compiling>> ");
+
+    if (self.vm.globalEnv.get("*syntax-expand*")) |expand| {
+
+        node = try self.preprocessDefines(node, &lexicalCtx);
+        try self.vm.bldr.newList();
+        try self.vm.stack.push(node);
+        try self.vm.bldr.appendToList();
+        node = try self.vm.stack.pop();
+        node = try self.runUserMacro(expand,  node);
+    }
 
         self.genExpr(node, &buff, &lexicalCtx, false) catch |e| {
             self.vm.code.shrinkRetainingCapacity(codeRestore);
@@ -148,13 +159,16 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                     try self.genSet(try node.second(), try node.third(), buffer, lexicalCtx);
                     return;
                 } else if (std.mem.eql(u8, "set-macro!", name)) { // TODO: set is not allowed to create new global vars
-                    // if (xs.len != 3) {
-                    //     return error.ArityMismatch;
-                    // }
                     if (lexicalCtx.rib != null) {
                         return error.IllegalMacro;
                     }
                     try self.genSetMacro(try node.second(), try node.third(), buffer, lexicalCtx);
+                    return;
+                } else if (std.mem.eql(u8, "set-lmacro!", name)) { // TODO: set is not allowed to create new global vars
+                    if (lexicalCtx.rib != null) {
+                        return error.IllegalMacro;
+                    }
+                    try self.genSetLMacro(try node.second(), try node.third(), buffer, lexicalCtx);
                     return;
                 } else if (std.mem.eql(u8, "begin", name)) {
                     // TODO: make sure this is true, maybe makes sense to put them one level up?
@@ -207,31 +221,41 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
                 } else if (self.primitives.get(name)) |prim| {
                     try self.genPrim(prim, node.tail(), buffer, lexicalCtx);
                     return;
+                } else if (self.vm.lexMacroMap.get(name)) |lexMacro| {
+                      const transformed = try self.runLexMacro(lexMacro,  node);
+                      const expanded = try self.maybeSyntaxExpand(transformed);
+                      try self.genExpr(expanded, buffer, lexicalCtx, isTailCall);
+                      return;
+
                 } else if (self.macros.get(name)) |macro| {
-                    const transformed = try macro.exec(self.vm, lexicalCtx, pair.snd);
+                    const transformed = try macro.exec(self.vm, lexicalCtx, self.arena, pair.snd);
                     // if (std.mem.eql(u8, "cond", name) ) {
                     //     transformed.debugprint("expanded: ");
                     // }
                     // std.debug.print("builtin macro: {s}\n", .{name});
-                    try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
+                    const expanded = try self.maybeSyntaxExpand(transformed);
+                    try self.genExpr(expanded, buffer, lexicalCtx, isTailCall);
                     // transformed.debugprint("... ");
                     return;
                 } else if (self.vm.macroMap.get(name)) |usermacro| {
                     const transformed = try self.runUserMacro(usermacro,  pair.snd);
-                    // if (std.mem.eql(u8, "let--", name) or std.mem.eql(u8, "let", name)) {
-                    //     transformed.debugprint("expanded: ");
-                    // }
-                    // transformed.debugprint("... ");
-                    try self.genExpr(transformed, buffer, lexicalCtx, isTailCall);
+                    const expanded = try self.maybeSyntaxExpand(transformed);
+
+                    try self.genExpr(expanded, buffer, lexicalCtx, isTailCall);
                     return;
-                }
+                } 
+                // else if (std.mem.eql(u8, "eval", name)) {
+                //     const result = try self.runUserMacro(pair.snd.head(), _nil); // TODO: '() not tail..
+                //     try buffer.append(self.arena, .{.Const = result});
+                //     return;
+                // }
             }
             try self.genAp(node, buffer, lexicalCtx, isTailCall);
         },
         .nil => {
                 return error.EmptyApplication;
         },
-        .intNumber, .floatNumber, .bool, .char => { // FIXME: shouldn't string and vector go to data?
+        .intNumber, .floatNumber, .bool, .char => { 
             try buffer.append(self.arena, .{.Const = node});
         },
         .string, .vector => {
@@ -254,6 +278,40 @@ pub fn genExpr(self: *Compiler, node: NodePtr, buffer: *std.ArrayList(Instructio
         .void, .procedure, .resource => {
             @panic("unreachable");
         }
+    }
+}
+
+pub fn maybeSyntaxExpand(self: *Compiler, node: NodePtr) anyerror!NodePtr {
+    if (self.vm.globalEnv.get("*syntax-expand*")) |expand| {
+        try self.vm.bldr.newList();
+        try self.vm.stack.push(node);
+        try self.vm.bldr.appendToList();
+        const l = try self.vm.stack.pop();
+        return self.runUserMacro(expand,  l);
+    } else {
+        return node;
+    }
+}
+
+pub fn preprocessDefines(self: *Compiler, node: NodePtr, lexicalCtx: *LexicalCtx) anyerror!NodePtr {
+    switch(node.getId()) {
+        .pair => {
+            const pair = node.cast(.pair);
+            if (pair.fst.getId() == .atom) {
+                const name = pair.fst.cast(.atom).name;
+                if (std.mem.eql(u8, "define", name)) {
+                    const macro = self.macros.get("define").?;
+                    const transformed = try macro.exec(self.vm, lexicalCtx, self.arena, pair.snd);
+                    return transformed;
+                } else if (std.mem.eql(u8, "define-syntax", name)) {
+                    const macro = self.macros.get("define-syntax").?;
+                    const transformed = try macro.exec(self.vm, lexicalCtx, self.arena, pair.snd);
+                    return transformed;
+                }
+            }
+            return node;
+        },
+        else => { return node; },
     }
 }
 
@@ -431,6 +489,7 @@ pub fn genPrim(self: *Compiler, prim: *const Primitives.Prim, params: NodePtr, b
         try buffer.append(self.arena, .{.Const = NodePtr.initU64(@as(u48, @bitCast(n)), .{ .id = .intNumber }) });
     } else {
         if (prim.numArgs != l) {
+            std.debug.print("primitive: {s}, required: {d}, provided: {d}\n", .{prim.name, prim.numArgs, l});
             return error.ArityMismatch;
         }
     }
@@ -524,6 +583,15 @@ pub fn genSetMacro(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *s
     try self.genExpr(expr, buffer, lexicalCtx, false);
 
     try buffer.append(self.arena, .{ .MSet = nameNode });
+    try buffer.append(self.arena, .{ .Const = _void });
+}
+pub fn genSetLMacro(self: *Compiler, nameNode: NodePtr, expr: NodePtr, buffer: *std.ArrayList(Instruction), lexicalCtx: *LexicalCtx) anyerror!void {
+    if (nameNode.getId() != .atom) {
+        return error.WrongSyntax;
+    }
+    try self.genExpr(expr, buffer, lexicalCtx, false);
+
+    try buffer.append(self.arena, .{ .LMSet = nameNode });
     try buffer.append(self.arena, .{ .Const = _void });
 }
 
@@ -663,7 +731,40 @@ pub fn runUserMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerr
     try self.vm.code.append(self.allocator, .Halt );
 
     self.vm.ip = @intCast(codeRestore);
-    try self.vm.run();
+    self.vm.run() catch |e| {
+        usermacro.debugprint("while compiling: ");
+        return e;
+    };
+
+    self.vm.code.shrinkRetainingCapacity(codeRestore);
+    const res = try self.vm.stack.pop();
+
+    // const stackAfter = self.vm.stack.size;
+    // std.debug.print("user macro, stack before {d}, after {d} \n" , .{stackBefore, stackAfter});
+    // _ = try self.vm.stack.pop();
+    try self.vm.protectCompile.push(res);
+    return res;
+}
+pub fn runLexMacro(self: *Compiler, usermacro: NodePtr, params: NodePtr) anyerror!NodePtr {
+    // const m = usermacro.cast(.procedure);
+    // const stackBefore = self.vm.stack.size;
+    const codeRestore = self.vm.code.items.len;
+    try self.vm.bldr.newIntNumber(0);
+    try self.vm.bldr.newList();
+    try self.vm.bldr.newIntNumber(@intCast(codeRestore + 1));
+
+    try self.vm.stack.push(params);
+    try self.vm.stack.push(usermacro);
+
+    // try self.vm.code.append(self.arena, .{ .Save = @intCast(2) });
+    try self.vm.code.append(self.allocator, .{ .JCall = 1 });
+    try self.vm.code.append(self.allocator, .Halt );
+
+    self.vm.ip = @intCast(codeRestore);
+    self.vm.run() catch |e| {
+        usermacro.debugprint("while compiling: ");
+        return e;
+    };
 
     self.vm.code.shrinkRetainingCapacity(codeRestore);
     const res = try self.vm.stack.pop();

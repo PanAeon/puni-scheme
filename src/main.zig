@@ -48,6 +48,7 @@ const InstructionTag = enum {
     FnParams,
     Primitive,
     MSet,
+    LMSet,
     CC,
     Halt
 };
@@ -75,6 +76,7 @@ pub const Instruction = union(InstructionTag) {
     FnParams: FunctionParams,
     Primitive: *const Prim,
     MSet: NodePtr,
+    LMSet: NodePtr,
     CC,
     Halt,
 
@@ -115,6 +117,7 @@ pub const Instruction = union(InstructionTag) {
                 .JCall => |numArgs|  std.debug.print("JCall {d}\n", .{numArgs}),
                 .Pop => |n| std.debug.print("Pop {d}\n", .{n}),
                 .MSet => |p|  std.debug.print("MSet {any}\n", .{p}),
+                .LMSet => |p|  std.debug.print("LMSet {any}\n", .{p}),
                 .CC =>  std.debug.print("CC", .{}),
                 .Return => |n| std.debug.print("Return {d}\n", .{n}),
         }
@@ -133,6 +136,7 @@ pub const VM = struct {
     globalEnv: std.StringHashMap(NodePtr),
     symbolMap: std.StringHashMap(NodePtr),
     macroMap: std.StringHashMap(NodePtr),
+    lexMacroMap: std.StringHashMap(NodePtr),
     consAlloctor: *ConsPage,
     // env: NodePtr = _nil,
     frame: i64 = 0, // current frame idx in the stack
@@ -181,6 +185,7 @@ pub const VM = struct {
             .globalEnv = std.StringHashMap(NodePtr).init(allocator),
             .symbolMap = std.StringHashMap(NodePtr).init(allocator),
             .macroMap = std.StringHashMap(NodePtr).init(allocator),
+            .lexMacroMap = std.StringHashMap(NodePtr).init(allocator),
             .verboseGC = verboseGC,
             .consAlloctor = try ConsPage.create(),
             .bldr = NodeBuilder.init(vm, allocator),
@@ -206,6 +211,7 @@ pub const VM = struct {
         self.data.shrinkRetainingCapacity(0);
         self.globalEnv.clearRetainingCapacity();
         self.macroMap.clearRetainingCapacity();
+        self.lexMacroMap.clearRetainingCapacity();
         self.disableGC = false;
         self.closure = _nil;
         self.gc();
@@ -215,6 +221,7 @@ pub const VM = struct {
         self.globalEnv.deinit();
         self.symbolMap.deinit();
         self.macroMap.deinit();
+        self.lexMacroMap.deinit();
         self.protectStack.deinit(self.allocator);
         self.protectCompile.deinit(self.allocator);
         self.consAlloctor.destroy();
@@ -248,6 +255,10 @@ pub const VM = struct {
             mark(x.*); // will break if mark is moved to Ptr itself..
         }
         iter = self.macroMap.valueIterator();
+        while (iter.next()) |x| {
+            mark(x.*); // will break if mark is moved to Ptr itself..
+        }
+        iter = self.lexMacroMap.valueIterator();
         while (iter.next()) |x| {
             mark(x.*); // will break if mark is moved to Ptr itself..
         }
@@ -495,6 +506,10 @@ pub const VM = struct {
                     const name = (try p.tryCast(.atom)).name;
                     try self.macroMap.put(name, try self.stack.pop());
                 },
+                .LMSet => |p| {
+                    const name = (try p.tryCast(.atom)).name;
+                    try self.lexMacroMap.put(name, try self.stack.pop());
+                },
                 .CC => {
                     const v = try self.stack.pop();
                     const c = try self.stack.pop();
@@ -543,7 +558,7 @@ pub const VM = struct {
                     self.frame = @intCast(self.stack.size - numArgs - 3);
                     var code: u32 = std.math.maxInt(u32);
                     for (f.params) |p| {
-                       if (p.varargs and numArgs >= p.numArgs) {
+                       if (p.varargs and numArgs + 1 >= p.numArgs) {
                           code = p.code;
                           const numLast = numArgs + 1 - p.numArgs ;
                           try self.bldr.newList();
@@ -558,6 +573,14 @@ pub const VM = struct {
                     
                     }
                     if (code == std.math.maxInt(u32)) {
+                        var iter = self.globalEnv.iterator();
+                        while (iter.next()) |p| {
+                          if (p.value_ptr.*.equal(&_f)) {
+                                std.debug.print("in {s}\n", .{p.key_ptr.*});
+                                return error.ArityMismatch;
+                          }
+                        }
+                        std.debug.print("in anonymous lambda\n", .{});
                         return error.ArityMismatch;
                     }
                     // if (f.varargs) { // TODO: think about varargs..
@@ -757,7 +780,7 @@ pub fn main() !void {
         defer arena.deinit();
         const file = try std.Io.Dir.cwd().openFile(threaded.io(), "scheme/init.scm", .{});
         defer file.close(threaded.io());
-        var buffer: [128*1024]u8 = undefined;
+        var buffer: [1024*1024]u8 = undefined;
         const len = try std.Io.File.readPositionalAll(file, threaded.io(), &buffer, 0);
         buffer[len] = 0;
         try parser.parse(buffer[0..len :0], arena.allocator());

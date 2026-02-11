@@ -149,6 +149,41 @@ pub const Parser = struct {
                 }
                 try self.vm.bldr.newVector(n, true);
             },
+            .syntax => {
+                self.token = try self.lexer.nextToken();
+                try self.parseExpr();
+                try self.vm.bldr.newList();
+                try self.vm.bldr.appendToListRev();
+                try self.vm.bldr.newAtom("syntax");
+                try self.vm.bldr.appendToList();
+
+            },
+            .quasisyntax => {
+                self.token = try self.lexer.nextToken();
+                try self.parseExpr();
+                try self.vm.bldr.newList();
+                try self.vm.bldr.appendToListRev();
+                try self.vm.bldr.newAtom("quasisyntax");
+                try self.vm.bldr.appendToList();
+
+            },
+            .unsyntax => {
+                self.token = try self.lexer.nextToken();
+                try self.parseExpr();
+                try self.vm.bldr.newList();
+                try self.vm.bldr.appendToListRev();
+                try self.vm.bldr.newAtom("unsyntax");
+                try self.vm.bldr.appendToList();
+
+            },
+            .unsyntax_splicing => {
+                self.token = try self.lexer.nextToken();
+                try self.parseExpr();
+                try self.vm.bldr.newList();
+                try self.vm.bldr.appendToListRev();
+                try self.vm.bldr.newAtom("unsyntax-splicing");
+                try self.vm.bldr.appendToList();
+            },
             else => {
                 std.debug.panic("not implemented {any}\n", .{self.token.id});
             },

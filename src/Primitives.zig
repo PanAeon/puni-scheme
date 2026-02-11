@@ -3,16 +3,20 @@ const VM = @import("main.zig").VM;
 const _void = @import("Node.zig")._void;
 const _true = @import("Node.zig")._true;
 const _false = @import("Node.zig")._false;
+const _nil = @import("Node.zig")._nil;
 const NodePtr = @import("Node.zig").NodePtr;
 const Node = @import("Node.zig").Node;
 const LexicalContext = @import("Compiler.zig").LexicalCtx;
+const Parser = @import("Parser.zig").Parser;
 const getEnv = @import("Env.zig").getEnv;
+const Compiler = @import("Compiler.zig");
+
 
 
 const Primitives = @This();
 
 pub const Macro = struct {
-    exec: *const fn (*VM, *LexicalContext, NodePtr) anyerror!NodePtr,
+    exec: *const fn (*VM, *LexicalContext, std.mem.Allocator, NodePtr) anyerror!NodePtr,
     name: []const u8,
 };
 
@@ -37,13 +41,14 @@ pub fn hasFloats(vm: *VM, n: i48) bool {
 }
 
 
-pub fn assertArityEq(expected: i48, actual: i48) anyerror!void {
-    if (expected != actual) {
-        return error.ArityMismatch;
-    }
-}
-pub fn assertArityGreaterOrEq(expected: i48, actual: i48) anyerror!void {
+// pub fn assertArityEq(expected: i48, actual: i48) anyerror!void {
+//     if (expected != actual) {
+//         return error.ArityMismatch;
+//     }
+// }
+pub fn assertArityGreaterOrEq(expected: i48, actual: i48, msg: []const u8) anyerror!void {
     if (actual < expected) {
+        std.debug.print("{s} actual: {d}, expected at least: {d}\n", .{msg, actual, expected});
         return error.ArityMismatch;
     }
 }
@@ -81,7 +86,7 @@ pub fn _isZero(vm: *VM) anyerror!void {
 
 pub fn sub(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, "sub");
     try vm.stack.reverseInPlace(@intCast(n));
     if (hasFloats(vm, n)) {
         var res: f32 = (try (try vm.stack.pop()).convertToFloat());
@@ -106,8 +111,49 @@ pub fn sub(vm: *VM) anyerror!void {
     }
 }
 
+pub fn _eval(vm: *VM) anyerror!void {
+    // std.debug.print("in eval\n", .{});
+    // const expr = vm.stack.pop();
+    var arena = std.heap.ArenaAllocator.init(vm.allocator);
+    defer arena.deinit();
+
+    var compiler = Compiler.init(arena.allocator(), vm.allocator, vm);
+    defer compiler.deinit();
+    compiler.getPrims();
+    // const codeLen = vm.code.items.len;
+    // const dataLen = vm.data.items.len;
+    // defer vm.code.shrinkRetainingCapacity(codeLen);
+    // defer vm.data.shrinkRetainingCapacity(dataLen);
+
+    const ret= vm.ip;
+    const closure = vm.closure;
+    const frame = vm.frame;
+    defer vm.ip = ret;
+    defer vm.closure = closure;
+    defer vm.frame = frame;
+    const start = try compiler.compile();
+    // std.debug.print("start: {d} \n", .{start});
+    vm.ip = start;
+
+            vm.closure = _nil;
+            vm.frame = 0;
+    try vm.run();
+    // std.debug.print("after run\n", .{});
+    // vm.ip = ret;
+    // now we need to compile and run the expression?
+}
 
 pub fn _apply(vm: *VM) anyerror!void {
+    // vm.printStack();
+    const numArgs = (try vm.stack.pop()).getIntValue();
+
+    if (numArgs < 2) {
+        std.debug.print("in apply", .{});
+        return error.ArityMismatch;
+    }
+    for (0 .. @intCast(numArgs - 2)) |_| {
+        try vm.bldr.appendToListRev();
+    }
     var args = try vm.stack.pop();
     const _f = try vm.stack.pop();
     vm.protect(args);
@@ -118,14 +164,14 @@ pub fn _apply(vm: *VM) anyerror!void {
 
     try vm.save(1);
 
-    var numArgs:u32 = 0;
+    var _numArgs:u32 = 0;
     while (args.getId() != .nil) {
         try vm.stack.push(args.cast(.pair).fst);
-        numArgs += 1;
+        _numArgs += 1;
         args = args.cast(.pair).snd;
     }
     try vm.stack.push(_f);
-    try vm.jcall(numArgs);
+    try vm.jcall(_numArgs);
 }
 
 
@@ -175,7 +221,7 @@ pub fn _apply(vm: *VM) anyerror!void {
 
 pub fn numEq(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, "numEq");
     var res = true;
     if (hasFloats(vm, n)) {
         const first: f32 = try (try vm.stack.pop()).convertToFloat();
@@ -193,7 +239,7 @@ pub fn numEq(vm: *VM) anyerror!void {
 // TODO: write macro?
 pub fn _less(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, "less");
     try vm.stack.reverseInPlace(@intCast(n));
     var res = true;
     if (hasFloats(vm, n)) {
@@ -211,7 +257,7 @@ pub fn _less(vm: *VM) anyerror!void {
 }
 pub fn _lessEq(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, "<=");
     try vm.stack.reverseInPlace(@intCast(n));
     var res = true;
     if (hasFloats(vm, n)) {
@@ -229,7 +275,7 @@ pub fn _lessEq(vm: *VM) anyerror!void {
 }
 pub fn _greater(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, ">");
     try vm.stack.reverseInPlace(@intCast(n));
     var res = true;
     if (hasFloats(vm, n)) {
@@ -247,7 +293,7 @@ pub fn _greater(vm: *VM) anyerror!void {
 }
 pub fn _greaterEq(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, ">=");
     try vm.stack.reverseInPlace(@intCast(n));
     var res = true;
     if (hasFloats(vm, n)) {
@@ -339,6 +385,10 @@ pub fn isSymbol(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .atom);
 }
+pub fn isProcedure(vm: *VM) anyerror!void {
+    const n = try vm.stack.pop();
+    try vm.bldr.newBool(n.getId() == .procedure);
+}
 
 pub fn isInteger(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
@@ -348,6 +398,10 @@ pub fn isInteger(vm: *VM) anyerror!void {
 pub fn isString(vm: *VM) anyerror!void {
     const n = try vm.stack.pop();
     try vm.bldr.newBool(n.getId() == .string);
+}
+pub fn isChar(vm: *VM) anyerror!void {
+    const n = try vm.stack.pop();
+    try vm.bldr.newBool(n.getId() == .char);
 }
 
 pub fn isReal(vm: *VM) anyerror!void {
@@ -396,10 +450,31 @@ pub fn stringAppend(vm: *VM) anyerror!void {
         try vm.bldr.newString(res);
     }
 }
+
+pub fn vectorToList(vm: *VM) anyerror!void {
+    const v = (try (try vm.stack.pop()).tryCast(.vector)).xs;
+    try vm.bldr.newList();
+    for (0..v.len) |i| {
+        try vm.stack.push(v[v.len - 1 - i]);
+        try vm.bldr.appendToList();
+    }
+}
+pub fn listToVector(vm: *VM) anyerror!void {
+    var xs = try vm.stack.pop();
+    const len = xs.len();
+    try vm.bldr.newVector(@intCast(len), false);
+    const v = (try vm.stack.head()).cast(.vector).xs;
+    var i:usize = 0;
+    while (xs.getId() != .nil) {
+        v[i] = xs.head();
+        xs = xs.tail();
+        i += 1;
+    }
+}
 pub fn stringToAtom(vm: *VM) anyerror!void { // TODO: radix..
-    const string = try vm.stack.pop();
-    if (string.getId() == .string) {
-        try vm.bldr.newAtom(string.cast(.string).s);
+    const str = try vm.stack.pop();
+    if (str.getId() == .string) {
+        try vm.bldr.newAtom(str.cast(.string).s);
     } else {
         return error.IllegalArgument;
     }
@@ -411,6 +486,17 @@ pub fn atomToString(vm: *VM) anyerror!void { // TODO: radix..
     } else {
         return error.IllegalArgument;
     }
+}
+pub fn _string(vm: *VM) anyerror!void { // TODO: not unicode friendly
+    const numArgs = (try vm.stack.pop()).getIntValue();
+    var str = try vm.allocator.alloc(u8, @intCast(numArgs));
+    defer vm.allocator.free(str);
+
+    for (0..@intCast(numArgs)) |i| {
+        str[@intCast(numArgs - 1 - @as(i48,@intCast(i)))] = try (try vm.stack.pop()).tryGetCharValue();
+    }
+    try vm.bldr.newString(str);
+
 }
 pub fn numberToString(vm: *VM) anyerror!void { // TODO: radix..
     const number = try vm.stack.pop();
@@ -445,6 +531,7 @@ pub fn _mul(vm: *VM) anyerror!void {
 pub fn _div(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
     if (n != 1 and n != 2) {
+        std.debug.print("in div", .{});
         return error.ArityMismatch;
     }
     try vm.stack.reverseInPlace(@intCast(n));
@@ -495,19 +582,6 @@ pub fn _timeStop(vm: *VM) anyerror!void {
     , .{ elapsed, vm.stats.numAllocs, vm.stats.numAllocConses, vm.stats.gcTime / 1000_000 });
     // pass result as is
 }
-// pub fn _eval(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     try assertArityEq(1, n);
-//     const a = try vm.stack.pop();
-//     try vm.pushStackFrame(a, vm.env, 0, .{});
-// }
-// pub fn _eval1(vm: *VM) anyerror!void {
-//     const n = (try vm.stack.pop()).getIntValue();
-//     try assertArityEq(2, n);
-//     const a = try vm.stack.pop();
-//     const env = try vm.stack.pop();
-//     try vm.pushStackFrame(a, env, 0, .{});
-// }
 
 pub fn isEq(vm: *VM) anyerror!void {
     const a = try vm.stack.pop();
@@ -578,6 +652,7 @@ pub fn mkVector(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
     var el: NodePtr = undefined;
     if (n != 1 and n != 2) {
+        std.debug.print("in mkVector", .{});
         return error.ArityMismatch;
     }
     const populate = n == 2;
@@ -638,7 +713,7 @@ pub fn _vectorSet(vm: *VM) anyerror!void {
 
 pub fn _error(vm: *VM) anyerror!void {
     const n = (try vm.stack.pop()).getIntValue();
-    try assertArityGreaterOrEq(1, n);
+    try assertArityGreaterOrEq(1, n, "in error");
     for (0..@intCast(n)) |_| {
         const msg = try vm.stack.pop();
         msg.debugprint("");
@@ -784,17 +859,7 @@ pub fn _closeOutputPort(vm: *VM) anyerror!void {
     try (try port.tryCast(.resource)).close();
     try vm.stack.push(_void);
 }
-// pub fn _displaynl(vm: *VM) anyerror!void {
-//     const a = try vm.stack.pop();
-//     a.print(); // todo: prettyprint..
-//     std.debug.print("\n", .{});
-//     try vm.stack.push(_void);
-// }
-// pub fn _print(vm: *VM) anyerror!void {
-//     const a = try vm.stack.pop();
-//     a.print(); // todo: prettyprint..
-//     try vm.stack.push(_void);
-// }
+
 
 pub const newline1: Prim = .{.name = "newline", .exec = _newline1,  .numArgs = 1};
 
@@ -819,6 +884,8 @@ pub const @"positive?": Prim = .{.name = "positive?", .exec = isPositive,  .numA
 pub const @"boolean?": Prim = .{.name = "boolean?", .exec = isBoolean,  .numArgs = 1};
 pub const @"number?": Prim = .{.name = "number?", .exec = isNumber,  .numArgs = 1};
 pub const @"symbol?": Prim = .{.name = "symbol?", .exec = isSymbol,  .numArgs = 1};
+pub const @"char?": Prim = .{.name = "symbol?", .exec = isChar,  .numArgs = 1};
+pub const @"procedure?": Prim = .{.name = "procedure?", .exec = isProcedure,  .numArgs = 1};
 pub const @"integer?": Prim = .{.name = "integer?", .exec = isInteger,  .numArgs = 1};
 pub const @"string?": Prim = .{.name = "string?", .exec = isString,  .numArgs = 1};
 pub const @"real?": Prim = .{.name = "real?", .exec = isReal,  .numArgs = 1};
@@ -837,6 +904,7 @@ pub const @"number->string": Prim = .{.name = "number->string", .exec = numberTo
 pub const @"string->symbol": Prim = .{.name = "string->symbol", .exec = stringToAtom,  .numArgs = 1};
 pub const @"symbol->string": Prim = .{.name = "symbol->string", .exec = atomToString,  .numArgs = 1};
 pub const @"string-append": Prim =    .{.name = "string-append",    .exec = stringAppend,     .varargs = true};
+pub const string: Prim =    .{.name = "string",    .exec = _string,     .varargs = true};
 
 pub const @"eq?": Prim =    .{.name = "eq?",    .exec = isEq,     .numArgs = 2};
 pub const @"eqv?": Prim =   .{.name = "eqv?",   .exec = isEqv,    .numArgs = 2};
@@ -849,7 +917,8 @@ pub const @"set-cdr!": Prim =    .{.name = "set-cdr!",    .exec = setCdr,     .n
 
 
 
-pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .numArgs = 2};
+pub const eval: Prim = .{.name = "eval", .exec = _eval,  .numArgs = 1};
+pub const @"apply": Prim = .{.name = "apply", .exec = _apply,  .varargs = true};
 
 pub const timeStart: Prim = .{.name = "timeStart", .exec = _timeStart, .numArgs = 0};
 pub const timeStop: Prim = .{.name = "timeStop", .exec = _timeStop, .numArgs = 1};
@@ -861,7 +930,8 @@ pub const @"vector": Prim =    .{.name = "vector",    .exec = _vector,     .vara
 pub const @"vector-length": Prim =    .{.name = "vector-length",    .exec = _vectorLength, .numArgs = 1};
 pub const @"vector-ref": Prim =    .{.name = "vector-length",    .exec = _vectorRef, .numArgs = 2};
 pub const @"vector-set!": Prim =    .{.name = "vector-set!",    .exec = _vectorSet, .numArgs = 3};
-
+pub const @"list->vector": Prim = .{.name = "list->vector", .exec = listToVector,  .numArgs = 1};
+pub const @"vector->list": Prim = .{.name = "vector->list", .exec = vectorToList,  .numArgs = 1};
 pub const random: Prim = .{.name = "random", .exec = _random,  .numArgs = 0};
 // IO
 pub const createStdout: Prim = .{.name = "createStdout", .exec = _createStdout,  .numArgs = 0};
@@ -878,7 +948,7 @@ pub const @"close-output-port": Prim = .{.name = "close-output-port", .exec = _c
 // ------------------------------ macros --------------------------------------
 
 
-pub fn _time(vm: *VM, _:*LexicalContext, params: NodePtr) anyerror!NodePtr {
+pub fn _time(vm: *VM, _:*LexicalContext, _: std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
     // if (params.len != 1) {
     //     return error.ArityMismatch;
     // }
@@ -900,7 +970,7 @@ pub fn _time(vm: *VM, _:*LexicalContext, params: NodePtr) anyerror!NodePtr {
     return res;
 }
 
-pub fn defineMacro(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
+pub fn defineMacro(vm: *VM, lc: *LexicalContext, _:std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
     // if (params.len < 2) {
     //     return error.ArityMismatch;
     // }
@@ -938,7 +1008,56 @@ pub fn defineMacro(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodeP
         return error.IllegalArgument;
     }
 }
-pub fn _define(vm: *VM, lc: *LexicalContext, params: NodePtr) anyerror!NodePtr {
+pub fn defineSyntax(vm: *VM, lc: *LexicalContext, _:std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
+    // if (params.len < 2) {
+    //     return error.ArityMismatch;
+    // }
+    if (lc.rib != null) {
+        return error.IllegalDefine;
+    }
+
+    const pair = try params.tryCast(.pair);
+
+    if (pair.fst.getId() == .atom) {
+        try vm.bldr.newList();
+        try vm.stack.push(try params.second());
+        try vm.bldr.appendToList();
+        try vm.stack.push(try params.tryHead());
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("set-lmacro!");
+        try vm.bldr.appendToList();
+        const res = try vm.stack.pop();
+        try vm.protectCompile.push(res);
+        return res;
+    } else if (pair.fst.getId() == .pair) {
+        var args = pair.fst;
+        const name = (try args.tryCast(.pair)).fst;
+        const lambdaParams = (try args.tryCast(.pair)).snd;
+
+        try vm.bldr.newList();
+            try vm.stack.push(pair.snd);
+            try vm.stack.push(lambdaParams);
+            try vm.bldr.appendToList();
+            try vm.bldr.newAtom("lambda");
+            try vm.bldr.appendToList();
+        try vm.bldr.appendToList();
+
+        try vm.stack.push(name);
+        try vm.bldr.appendToList();
+        try vm.bldr.newAtom("set-lmacro!");
+        try vm.bldr.appendToList();
+
+        const res = try vm.stack.pop();
+        // res.debugprint("result::: ");
+        try vm.protectCompile.push(res);
+        return res;
+
+    } else {
+        std.debug.print("can't define not atom, got: {}\n", .{pair.fst.getId()});
+        return error.IllegalArgument;
+    }
+}
+pub fn _define(vm: *VM, lc: *LexicalContext, _: std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
     // if (params.len < 2) {
     //     return error.ArityMismatch;
     // }
@@ -1022,7 +1141,7 @@ pub fn genCond(vm: *VM, params: NodePtr) anyerror!void {
     try vm.bldr.newAtom("if");
     try vm.bldr.appendToList();
 }
-pub fn _cond(vm: *VM, _: *LexicalContext, params: NodePtr) anyerror!NodePtr {
+pub fn _cond(vm: *VM, _: *LexicalContext, _: std.mem.Allocator,params: NodePtr) anyerror!NodePtr {
     try genCond(vm, params);
 
     const res = try vm.stack.pop();
@@ -1233,7 +1352,7 @@ pub fn qqExpand(vm: *VM, x: NodePtr, depth: usize) anyerror!void {
 }
 
 
-pub fn _quasiquote(vm: *VM, _: *LexicalContext, params: NodePtr) anyerror!NodePtr {
+pub fn _quasiquote(vm: *VM, _: *LexicalContext, _: std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
     if (params.len() != 1) {
         return error.BadSyntax;
     }
@@ -1248,9 +1367,37 @@ pub fn _quasiquote(vm: *VM, _: *LexicalContext, params: NodePtr) anyerror!NodePt
 }
 
 
+pub fn _include(vm: *VM, _: *LexicalContext, arena: std.mem.Allocator, params: NodePtr) anyerror!NodePtr {
+    if (params.len() != 1) {
+        return error.BadSyntax;
+    }
+    var parser = Parser.init(vm);
+    var filename: []u8 = undefined;
+    if (params.head().getId() == .string) {
+       filename = (try params.head().tryCast(.string)).s;
+    } if (params.head().getId() == .pair) {
+        const p = params.head().cast(.pair);
+        filename = (try p.snd.head().tryCast(.string)).s;
+    }
+    const path = try std.mem.concat(vm.allocator, u8, &.{"scheme/", filename});
+    defer vm.allocator.free(path);
+
+        const file = try std.Io.Dir.cwd().openFile(vm.io, path, .{});
+        defer file.close(vm.io);
+        var buffer: [1024*1024]u8 = undefined;
+        const len = try std.Io.File.readPositionalAll(file, vm.io, &buffer, 0);
+        buffer[len] = 0;
+        try parser.parse(buffer[0..len :0], arena);
+    const res = try vm.stack.pop();
+    return res;
+}
+
+
 pub const define: Macro = .{.name = "define", .exec = _define };
 pub const cond: Macro = .{.name = "cond", .exec = _cond };
 pub const quasiquote: Macro = .{.name = "quasiquote", .exec = _quasiquote };
+pub const include: Macro = .{.name = "include", .exec = _include };
 
 pub const @"define-macro": Macro = .{.name = "define-macro", .exec = defineMacro };
+pub const @"define-syntax": Macro = .{.name = "define-syntax", .exec = defineSyntax };
 pub const time: Macro = .{.name = "time", .exec = _time };
