@@ -5,7 +5,7 @@ const std = @import("std");
 
 %{include "unicode_categories.re" %}
 
-pub const LexerError = error{ UnclosedString, UnknownToken };
+pub const LexerError = error{ UnclosedString, UnknownToken, UnclosedComment };
 pub const Token = struct {
     id: Id,
     start: usize,
@@ -92,16 +92,18 @@ fn fill(st: *Lexer) i32 {
     return 0;
 }
 
+%{
+            re2c:encoding:utf8 = 1;
+            re2c:api = record;
+            re2c:YYFILL = "fill(yyrecord) == 0";
+            re2c:eof = 0;
+%}
+
 pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
    loop: while(true) {
       //const start = yyrecord.yycursor;
       yyrecord.token = yyrecord.yycursor;
         %{
-            re2c:encoding:utf8 = 1;
-            re2c:api = record;
-            re2c:YYFILL = "fill(yyrecord) == 0";
-            //re2c:yyfill:enable = 0;
-            re2c:eof = 0;
 
             digit = [0-9];
             peculiar_id = "+" | "-" | "...";
@@ -147,12 +149,23 @@ pub fn _nextToken(yyrecord: *Lexer) LexerError!Token {
             "#\\".       { return .{ .id = .character, .start = yyrecord.token, .end = yyrecord.yycursor}; }
             [ \r\n\t]+   { continue :loop; }
             comment      { continue :loop; }
-            blockComment { continue :loop; }
+            "#|"         { try _skipBlockComment(yyrecord); continue :loop; }
             "\""         { return error.UnclosedString; }
             *            { std.debug.print("unknown token: '{s}'", .{yyrecord.yyinput[yyrecord.token..yyrecord.yycursor]}); return error.UnknownToken; }
             $            { return .{ .id = .eof, .start = yyrecord.token, .end = yyrecord.yycursor}; }
         %}
     }
+}
+
+pub fn _skipBlockComment(yyrecord: *Lexer) LexerError!void {
+   loop: while(true) {
+     %{
+         "#|"         { try _skipBlockComment(yyrecord); continue :loop; }
+         "|#"         { return; }
+         *            {continue :loop; }
+         $            { return error.UnclosedComment;}
+     %}
+   }
 }
 
 pub fn main() !void {
