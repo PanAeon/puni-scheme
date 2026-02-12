@@ -676,12 +676,12 @@ pub fn repl(gpa: std.mem.Allocator, vm: *VM, parser: *Parser) !void {
         _ = linenoise.linenoiseHistoryAdd(line);
         linenoise.linenoiseFree(line);
 
-        var reader = std.Io.Reader.fixed(lineBuffer.items);
         // try lineBuffer.append(gpa, 0);
+        var reader = std.Io.Reader.fixed(lineBuffer.items);
         parser.parse(&reader, arena.allocator()) catch |e| {
             switch (e) {
                 ParserError.UnmatchedParen, lex.LexerError.UnclosedString => {
-                    _ = lineBuffer.pop();
+                    // _ = lineBuffer.pop();
                     if (lastLineLength != 0) {
                         try lineBuffer.append(gpa, '\n');
                         vm.stack.clear();
